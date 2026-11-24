@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>단가 관리</title>
+<meta name="theme-color" content="#1f5c87">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="단가 관리">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+/* Mobile: app bar + one column of item cards; item detail lists each customer's price; bottom tab bar; history opens as a bottom sheet */
+body{font-size:15px;padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+input[type=text],input[type=date],input[type=number],input[type=search],select{font-size:16px}
+.gut{padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+.bar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.bar-row{display:flex;align-items:center;gap:10px;height:54px}
+.bar h1{font-size:17px;margin:0;font-weight:700;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{border:none;background:none;padding:8px;margin-left:-8px;font-size:22px;line-height:1;cursor:pointer;color:var(--fg)}
+.search{padding-block:0 10px;display:flex;flex-direction:column;gap:8px}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chip{border:1px solid var(--line-strong);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;white-space:nowrap;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.datechip{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.datechip input{width:auto;padding:4px 8px;font-size:14px}
+main{padding-block:12px 24px;display:flex;flex-direction:column;gap:12px}
+.grp{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em;padding:10px 2px 4px}
+.items{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.irow{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;background:none;border-left:none;border-right:none;border-top:none;width:100%}
+.irow:last-child{border-bottom:none}
+.irow:active{background:var(--surface-2)}
+.irow .l{flex:1;min-width:0}
+.irow .m{font-family:var(--font-num);font-weight:500;font-size:15px}
+.irow .s{font-size:12px;color:var(--muted)}
+.irow .r{text-align:right;font-family:var(--font-num)}
+.irow .r small{display:block;font-family:var(--font-ui);font-size:11px;color:var(--muted)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-left:6px;vertical-align:2px}
+.chev{color:var(--line-strong);font-size:18px}
+.detail-head{display:flex;flex-direction:column;gap:2px}
+.detail-head .m{font-family:var(--font-num);font-size:22px;font-weight:500}
+.prow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:11px 12px;border-bottom:1px solid var(--line);cursor:pointer;align-items:center}
+.prow:last-child{border-bottom:none}
+.prow:active{background:var(--surface-2)}
+.prow .n{font-weight:500}
+.prow .v{font-family:var(--font-num);font-size:16px;text-align:right}
+.prow .sub{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);align-items:center}
+.prow.chg .v{background:var(--chg);color:var(--chg-fg);padding:0 6px;border-radius:4px}
+.prow.none .v{color:var(--muted);font-size:13px}
+.mg{font-family:var(--font-num)}
+.mg.neg{color:var(--up);font-weight:600}.mg.low{color:var(--warn)}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.tabbar a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0 7px;text-decoration:none;color:var(--muted);font-size:11px;font-weight:500}
+.tabbar a svg{width:22px;height:22px}
+.tabbar a[aria-current="page"]{color:var(--accent)}
+.sheet-bg{position:fixed;inset:0;z-index:40;background:rgba(10,20,30,.35)}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--surface);border-radius:14px 14px 0 0;max-height:92vh;display:flex;flex-direction:column;box-shadow:var(--shadow);padding-bottom:env(safe-area-inset-bottom,0px)}
+.sheet-head{display:flex;align-items:flex-start;gap:10px;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.sheet-head .t{flex:1;min-width:0}
+.sheet-head .t div{font-size:12px;color:var(--muted)}
+.sheet-head .t strong{font-family:var(--font-num);font-size:17px}
+.sheet-body{overflow-y:auto;padding:14px 16px 20px;display:flex;flex-direction:column;gap:16px;-webkit-overflow-scrolling:touch}
+.form{grid-template-columns:1fr 1fr}
+.filters{grid-template-columns:1fr 1fr}
+.filters h2{grid-column:1/-1}
+.toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.timeline li{grid-template-columns:84px 1fr}
+.savebtn{padding:6px 12px}
+.pill{max-width:42vw;overflow:hidden;text-overflow:ellipsis}
+.links{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="gut bar-row">
+    <button class="iconbtn" id="back" type="button" aria-label="뒤로" hidden>‹</button>
+    <h1 id="title">단가 관리</h1>
+    <span class="pill" id="pill"></span>
+    <button class="btn primary small savebtn" id="btnSave" type="button">저장</button>
+  </div>
+  <div class="gut search" id="searchBar">
+    <input type="search" id="q" placeholder="모델 · 구분 검색 (예: 0580, AF, 소결)" aria-label="검색">
+    <div class="chips" id="chips"></div>
+    <label class="datechip">기준일 <input type="date" id="date"> <span id="dateNote"></span></label>
+  </div>
+</header>
+
+<main class="gut">
+  <section id="v-prices"></section>
+  <section id="v-item" hidden></section>
+  <section id="v-history" hidden></section>
+  <section id="v-analysis" hidden></section>
+  <section id="v-more" hidden style="display:flex;flex-direction:column;gap:12px">
+    <div id="setupBox" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div class="section"><h2>품목 · 거래처 · 내보내기</h2><div class="links"><button class="btn" type="button" id="btnAddItem">품목 추가</button><button class="btn" type="button" id="btnAddCol">거래처 추가</button><button class="btn" type="button" id="btnXlsx">엑셀로 내보내기</button><a class="btn" href="pc.html">PC 화면으로</a></div></div>
+    <div class="section"><label class="field"><span>마진 원가 기준</span><select id="basis"><option value="hana">하나테크 우선, 없으면 덕우</option><option value="dukwoo">덕우 우선, 없으면 하나테크</option></select></label></div>
+    <div class="section" id="fxBox"></div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="메뉴">
+  <a href="#prices" data-tab="prices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg>단가</a>
+  <a href="#history" data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>이력</a>
+  <a href="#analysis" data-tab="analysis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>분석</a>
+  <a href="#more" data-tab="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>설정</a>
+</nav>
+
+<div class="sheet-bg" id="sheetBg" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-label="단가 이력">
+  <div class="sheet-head"><div class="t"><div id="sPath"></div><strong id="sModel"></strong><div id="sCol"></div></div><button class="btn small" type="button" id="sClose">닫기</button></div>
+  <div class="sheet-body" id="sBody"></div>
+</div>
+
+<script src="core.js"></script>
+<script>
+(function(){
+"use strict";
+const A=Danga,{$,esc,today,addDays}=A;
+const VIEWS=['prices','item','history','analysis','more'];
+let cat='',curItem=A.LS.get('danga.m.item'),showAll=false,showMargin=true,hist,ana,fx,setup,sheetCell=null;
+const date=()=>$('#date').value||today();
+const basis=()=>$('#basis').value;
+
+function renderChips(){
+  const cs=A.cats();if(cat&&!cs.includes(cat))cat='';
+  $('#chips').innerHTML=['',...cs].map(c=>'<button class="chip" type="button" data-cat="'+esc(c)+'" aria-pressed="'+(c===cat)+'">'+esc(c||'전체')+'</button>').join('');
+}
+function renderPrices(){
+  renderChips();const el=$('#v-prices');
+  if(A.isEmpty()){el.innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>설정에서 원본 단가.xlsx를 가져오거나, 드라이브에서 불러오세요.</span><a class="btn primary" href="#more">설정으로 가기</a></div>';return}
+  const d=date(),since=addDays(d,-30),q=$('#q').value.trim();
+  const rows=A.DB.items.filter(it=>A.matchItem(it,q,cat));
+  if(!rows.length){el.innerHTML='<div class="empty"><b>검색 결과가 없습니다.</b>검색어나 대구분을 바꿔 보세요.</div>';return}
+  const buys=A.DB.columns.filter(c=>c.group==='buy'),sells=A.DB.columns.filter(c=>c.group!=='buy');
+  let h='',grp=null,open=false;
+  for(const it of rows){
+    const g=it.cat1+(it.cat2?' › '+it.cat2:'');
+    if(g!==grp){if(open)h+='</div>';h+='<div class="grp">'+esc(g)+'</div><div class="items">';grp=g;open=true}
+    let cost=null;for(const c of buys){const e=A.entryAt(it.id,c.key,d);if(A.hasVal(e)){cost=e;break}}
+    const n=sells.filter(c=>A.isNum(A.entryAt(it.id,c.key,d))).length;
+    const chg=A.DB.columns.some(c=>A.isChanged(A.entryAt(it.id,c.key,d),since));
+    const fut=A.DB.columns.some(c=>A.hasFuture(it.id,c.key,d));
+    h+='<button class="irow" type="button" data-item="'+esc(it.id)+'"><span class="l"><span class="m">'+esc(A.itemName(it))+'</span>'+(chg?'<span class="dot" title="최근 30일 변경"></span>':'')+(fut?' <span class="tag fut">예정</span>':'')+'<br><span class="s">판매처 '+n+'곳</span></span><span class="r">'+(cost?A.eHtml(cost):'<span class="hint">-</span>')+'<small>매입가</small></span><span class="chev">›</span></button>';
+  }
+  if(open)h+='</div>';
+  el.innerHTML=h+'<p class="hint" style="margin-top:8px">주황 점: 최근 30일 안에 바뀐 단가가 있음</p>';
+}
+function renderItem(){
+  const el=$('#v-item'),it=A.ITEM.get(curItem);
+  if(!it){location.hash='#prices';return}
+  const d=date(),since=addDays(d,-30);
+  $('#title').textContent=A.itemName(it);
+  const row=c=>{
+    const e=A.entryAt(it.id,c.key,d),has=A.hasVal(e);
+    if(!has&&!showAll&&!A.hasFuture(it.id,c.key,d))return '';
+    let sub=[];
+    if(e&&!e.base)sub.push('<span>'+esc(e.from)+'부터</span>'+A.deltaHtml(A.delta(A.prevOf(e),e)));
+    if(A.hasFuture(it.id,c.key,d)){const h=A.hist(it.id,c.key),f=h[h.length-1];sub.push('<span class="tag fut">'+esc(f.from)+' 예정 '+esc(A.eText(f))+'</span>')}
+    if(showMargin&&c.group!=='buy'){const r=A.marginOf(it,c,d,basis());if(r)sub.push(r.unknown?'<span>마진: 원가·환율 필요</span>':'<span>마진 <b class="mg'+(r.m<0?' neg':r.p<10?' low':'')+'">'+esc(A.fmtN(Math.round(r.m*100)/100))+'원 · '+r.p.toFixed(1)+'%</b></span>')}
+    return '<div class="prow'+(A.isChanged(e,since)?' chg':'')+(has?'':' none')+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" role="button" tabindex="0"><span class="n">'+esc(c.name)+'</span><span class="v">'+(has?A.eHtml(e):'없음')+'</span>'+(sub.length?'<span class="sub">'+sub.join('')+'</span>':'')+'</div>';
+  };
+  const buy=A.DB.columns.filter(c=>c.group==='buy').map(row).join(''),sell=A.DB.columns.filter(c=>c.group!=='buy').map(row).join('');
+  el.innerHTML='<div class="detail-head"><span class="hint">'+esc(A.itemLabel(it))+'</span><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
+    '<div class="row" style="margin-top:10px"><label class="check"><input type="checkbox" id="optAll"'+(showAll?' checked':'')+'> 거래 없는 곳도 보기</label><label class="check"><input type="checkbox" id="optMg"'+(showMargin?' checked':'')+'> 마진 보기</label></div>'+
+    '<div class="grp">매입가</div><div class="items">'+(buy||'<div class="prow none"><span class="n hint">매입가 없음</span></div>')+'</div>'+
+    '<div class="grp">판매가</div><div class="items">'+(sell||'<div class="prow none"><span class="n hint">판매처 없음 · "거래 없는 곳도 보기"를 켜고 추가하세요</span></div>')+'</div>';
+  $('#optAll').addEventListener('change',e=>{showAll=e.target.checked;renderItem()});
+  $('#optMg').addEventListener('change',e=>{showMargin=e.target.checked;renderItem()});
+}
+
+function openSheet(i,c){
+  const it=A.ITEM.get(i),col=A.COL.get(c);if(!it||!col)return;sheetCell={i,c};
+  $('#sPath').textContent=A.itemLabel(it);$('#sModel').textContent=A.itemName(it);$('#sCol').textContent=col.name+(col.group==='buy'?' · 매입가':' · 판매가');
+  A.renderCell($('#sBody'),i,c,{date:date()});$('#sheet').hidden=false;$('#sheetBg').hidden=false;$('#sBody').scrollTop=0;
+}
+function closeSheet(){$('#sheet').hidden=true;$('#sheetBg').hidden=true;sheetCell=null;render()}
+$('#sClose').addEventListener('click',closeSheet);$('#sheetBg').addEventListener('click',closeSheet);
+
+document.addEventListener('click',ev=>{
+  const ch=ev.target.closest('[data-cat]');if(ch){cat=ch.dataset.cat;renderPrices();return}
+  const ir=ev.target.closest('[data-item]');if(ir){curItem=ir.dataset.item;A.LS.set('danga.m.item',curItem);location.hash='#item';return}
+  const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#sheet'))openSheet(t.dataset.i,t.dataset.c);
+});
+document.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&ev.target.matches('.prow[data-i]'))openSheet(ev.target.dataset.i,ev.target.dataset.c)});
+
+const cur=()=>{const v=location.hash.slice(1);return VIEWS.includes(v)?v:'prices'};
+function render(){
+  const v=cur();
+  if(v==='prices')renderPrices();
+  else if(v==='item')renderItem();
+  else if(v==='history'){if(!hist)hist=A.mountHistory($('#v-history'),{cards:true});else hist.refresh()}
+  else if(v==='analysis'){if(!ana)ana=A.mountAnalysis($('#v-analysis'),{cards:true});else ana.refresh()}
+  else if(v==='more'){if(!fx)fx=A.mountFx($('#fxBox'));if(!setup)setup=A.mountSettings($('#setupBox'));else setup.refresh()}
+}
+function route(){
+  const v=cur();VIEWS.forEach(x=>$('#v-'+x).hidden=x!==v);
+  const tab=v==='item'?'prices':v;
+  document.querySelectorAll('.tabbar a').forEach(a=>{if(a.dataset.tab===tab)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+  $('#back').hidden=v!=='item';$('#searchBar').hidden=v!=='prices'&&v!=='item';$('#q').hidden=v==='item';$('#chips').hidden=v==='item';
+  $('#title').textContent={prices:'단가 관리',history:'변경 이력',analysis:'변경 분석',more:'설정'}[v]||'단가 관리';
+  render();window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',route);
+$('#back').addEventListener('click',()=>{if(history.length>1)history.back();else location.hash='#prices'});
+$('#q').addEventListener('input',renderPrices);
+$('#date').addEventListener('input',()=>{$('#dateNote').textContent=date()===today()?'(오늘)':'';render()});
+$('#basis').addEventListener('change',()=>{A.LS.set('danga.m.basis',basis());render()});
+$('#btnSave').addEventListener('click',()=>A.save());
+$('#btnAddItem').addEventListener('click',A.addItemDialog);$('#btnAddCol').addEventListener('click',A.addColDialog);
+$('#btnXlsx').addEventListener('click',()=>A.exportXlsx(date()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message)));
+
+let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy();clearTimeout(rT);rT=setTimeout(()=>{if(cur()!=='more'&&!sheetCell)render();if(cur()==='more'&&fx)fx.refresh()},30)});
+
+$('#date').value=today();$('#dateNote').textContent='(오늘)';
+const b=A.LS.get('danga.m.basis');if(b)$('#basis').value=b;
+A.renderPill($('#pill'));route();A.autoSync();
+})();
+</script>
+</body>
+</html>

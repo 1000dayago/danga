@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>단가 관리</title>
+<meta name="theme-color" content="#1f5c87">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+/* PC: sticky top bar + tabs; Excel-like wide grid with a right history drawer */
+.wrap{padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+.top{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:10px}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto;min-width:0}
+.brand h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.tabs a{padding:9px 14px;text-decoration:none;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs a[aria-current="page"]{color:var(--fg);border-bottom-color:var(--accent)}
+.tabs a:hover{color:var(--fg)}
+main{padding-block:16px 48px}
+.view{display:flex;flex-direction:column;gap:14px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end}
+.toolbar .field{width:auto}
+.toolbar .grow{flex:1 1 200px}
+.toolbar input[type=date]{width:150px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted);align-items:center}
+.sw{display:inline-block;width:14px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid var(--line)}
+.sw.chg{background:var(--chg)} .sw.buy{background:var(--buy)}
+.sw.fut{background:none;border:none;width:0;height:0;border-top:7px solid var(--future);border-left:7px solid transparent}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;align-items:start}
+.cols-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;align-items:start}
+#v-analysis>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
+#v-analysis>div>.section:first-child,#v-analysis>div>.section:last-child{grid-column:1/-1}
+
+.scroller{overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:calc(100vh - 230px);min-height:300px}
+table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:100%}
+.grid th,.grid td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 8px;white-space:nowrap}
+.grid thead th{position:sticky;background:var(--surface-2);font-weight:600;font-size:12px;text-align:center;z-index:3;line-height:1.3}
+.grid thead tr.g th{top:0;height:24px;font-size:11px;color:var(--muted);letter-spacing:.04em}
+.grid thead tr.h th{top:24px;white-space:normal;min-width:64px;max-width:80px;word-break:keep-all}
+.grid thead th.buy{background:var(--buy-head)}
+.grid .c1,.grid .c2,.grid .md{position:sticky;background:var(--surface);z-index:2}
+.grid thead .c1,.grid thead .c2,.grid thead .md{z-index:4;background:var(--surface-2)}
+.grid .c1{left:0;width:78px;min-width:78px;max-width:78px;white-space:normal;word-break:keep-all;font-weight:600}
+.grid .c2{left:78px;width:78px;min-width:78px;max-width:78px;white-space:normal;word-break:keep-all;color:var(--muted)}
+.grid .md{left:156px;min-width:150px;font-family:var(--font-num);border-right:2px solid var(--line-strong)}
+.grid td.c1,.grid td.c2{vertical-align:middle;text-align:center;font-size:12px}
+.grid td.v{text-align:right;font-family:var(--font-num);font-variant-numeric:tabular-nums;cursor:pointer;position:relative;min-width:64px}
+.grid td.v.buy{background:var(--buy)}
+.grid td.v:hover,.grid td.v.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.grid td.v.chg{background:var(--chg);color:var(--chg-fg);font-weight:500}
+.grid td.v.chg .cur{color:inherit}
+.grid td.v.txt{text-align:left;font-family:var(--font-ui);font-size:12px;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.grid td.v.fut::after{content:"";position:absolute;top:0;right:0;border-top:7px solid var(--future);border-left:7px solid transparent}
+.grid tbody tr:hover td.md{color:var(--accent)}
+.grid td.neg{color:var(--up);font-weight:600}
+.grid td.low{color:var(--warn)}
+.grid td.na{color:var(--muted);font-family:var(--font-ui);font-size:11px;text-align:center}
+
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--surface);border-left:1px solid var(--line);box-shadow:var(--shadow);z-index:40;display:flex;flex-direction:column}
+.drawer-head{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line)}
+.drawer-head .t{flex:1;min-width:0}
+.drawer-head .t div{font-size:12px;color:var(--muted)}
+.drawer-head .t strong{font-size:16px;font-family:var(--font-num)}
+.drawer-body{overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
+.scrim{position:fixed;inset:0;background:rgba(10,20,30,.25);z-index:35}
+.toast{bottom:24px}
+.switch{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand"><h1>단가 관리</h1><small id="brandSub"></small></div>
+    <a class="switch" href="mobile.html">모바일 화면</a>
+    <span class="pill" id="pill"></span>
+    <button class="btn primary" id="btnSave" type="button">드라이브에 저장</button>
+  </div>
+  <nav class="wrap tabs" aria-label="화면">
+    <a href="#table" data-view="table">전체 단가표</a>
+    <a href="#history" data-view="history">이력 검색</a>
+    <a href="#analysis" data-view="analysis">변경 분석</a>
+    <a href="#margin" data-view="margin">마진 · 환율</a>
+    <a href="#setup" data-view="setup">저장 · 설정</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="view" id="v-table">
+    <div class="toolbar">
+      <label class="field"><span>기준일</span><input type="date" id="tDate"></label>
+      <label class="field grow"><span>모델 · 구분 검색</span><input type="search" id="tSearch" placeholder="예: 102 S 0580, AF, 소결"></label>
+      <label class="field"><span>대구분</span><select id="tCat"></select></label>
+      <label class="field"><span>변경 표시</span><select id="tHi"><option value="30">최근 30일 변경</option><option value="7">최근 7일 변경</option><option value="90">최근 90일 변경</option><option value="all">기준 단가 이후 전체</option><option value="off">표시 안 함</option></select></label>
+      <label class="check"><input type="checkbox" id="tHideEmpty"> 빈 거래처 열 숨기기</label>
+    </div>
+    <div class="toolbar">
+      <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span><span class="cur">EUR</span><span class="cur">RMB</span>외화, 나머지는 원</span><span>셀을 누르면 이력 · 단가 변경</span></div>
+      <div class="row" style="margin-left:auto"><button class="btn small" type="button" id="btnAddItem">품목 추가</button><button class="btn small" type="button" id="btnAddCol">거래처 추가</button><button class="btn small" type="button" id="btnXlsx">엑셀로 내보내기</button></div>
+    </div>
+    <div id="tEmpty" hidden></div>
+    <div class="scroller" id="tScroll"><table class="grid" id="tGrid"></table></div>
+  </section>
+  <section class="view" id="v-history" hidden></section>
+  <section class="view" id="v-analysis" hidden><div id="anaBox"></div></section>
+  <section class="view" id="v-margin" hidden>
+    <div class="toolbar">
+      <label class="field"><span>기준일</span><input type="date" id="mDate"></label>
+      <label class="field"><span>원가 기준</span><select id="mBasis"><option value="hana">하나테크 우선, 없으면 덕우</option><option value="dukwoo">덕우 우선, 없으면 하나테크</option></select></label>
+      <label class="field"><span>표시</span><select id="mMode"><option value="amt">마진 금액 (원)</option><option value="pct">마진율 (판매가 대비 %)</option></select></label>
+      <label class="field grow"><span>모델 검색</span><input type="search" id="mSearch"></label>
+    </div>
+    <div class="legend"><span class="up">빨강: 역마진</span><span style="color:var(--warn)">주황: 마진율 10% 미만</span><span>원가 열은 외화를 원으로 환산한 값</span></div>
+    <div class="scroller" id="mScroll"><table class="grid" id="mGrid"></table></div>
+    <div class="section" id="fxBox"></div>
+  </section>
+  <section class="view" id="v-setup" hidden><div class="cols-2" id="setupBox"></div></section>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="단가 이력">
+  <div class="drawer-head"><div class="t"><div id="dPath"></div><strong id="dModel"></strong><div id="dCol"></div></div><button class="btn small" type="button" id="dClose">닫기</button></div>
+  <div class="drawer-body" id="dBody"></div>
+</aside>
+
+<script src="core.js"></script>
+<script>
+(function(){
+"use strict";
+const A=Danga,{$,esc,today,addDays}=A;
+const VIEWS=['table','history','analysis','margin','setup'];
+let hist,ana,fx,setup,selCell=null;
+
+function gridHtml(rows,cols,cellFn,opt){
+  opt=opt||{};const buy=cols.filter(c=>c.group==='buy'),sell=cols.filter(c=>c.group!=='buy');
+  let h='<thead><tr class="g"><th class="c1" rowspan="2">대구분</th><th class="c2" rowspan="2">소구분</th><th class="md" rowspan="2">MODEL</th>';
+  if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+'</th>';
+  if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+'</th>';
+  h+='</tr><tr class="h">'+cols.map(c=>'<th class="'+(c.group==='buy'?'buy':'')+'">'+esc(c.name)+'</th>').join('')+'</tr></thead><tbody>';
+  if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
+  for(let r=0;r<rows.length;r++){const it=rows[r];h+='<tr>';
+    if(r===0||rows[r-1].cat1!==it.cat1){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1)n++;h+='<td class="c1" rowspan="'+n+'">'+esc(it.cat1)+'</td>'}
+    if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;h+='<td class="c2" rowspan="'+n+'">'+esc(it.cat2)+'</td>'}
+    h+='<td class="md">'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
+  return h+'</tbody>';
+}
+function emptyState(){return '<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>처음이면 원본 단가.xlsx를 가져오고, 다른 기기에서 저장한 적이 있으면 드라이브에서 불러오세요.</span><a class="btn primary" href="#setup">저장 · 설정으로 가기</a></div>'}
+
+function renderTable(){
+  const sel=$('#tCat'),cv=sel.value;sel.innerHTML='<option value="">전체</option>'+A.cats().map(c=>'<option>'+esc(c)+'</option>').join('');sel.value=cv;
+  const empty=A.isEmpty();$('#tEmpty').hidden=!empty;$('#tScroll').hidden=empty;if(empty){$('#tEmpty').innerHTML=emptyState();return}
+  const d=$('#tDate').value||today(),q=$('#tSearch').value.trim(),cat=sel.value,hi=$('#tHi').value;
+  const since=hi==='off'?null:hi==='all'?'0000':addDays(d,-Number(hi));
+  const rows=A.DB.items.filter(it=>A.matchItem(it,q,cat));
+  let cols=A.DB.columns;if($('#tHideEmpty').checked)cols=cols.filter(c=>rows.some(it=>A.hasVal(A.entryAt(it.id,c.key,d))));
+  $('#tGrid').innerHTML=gridHtml(rows,cols,(it,c)=>{
+    const e=A.entryAt(it.id,c.key,d);let cls='v'+(c.group==='buy'?' buy':'');
+    if(e&&!A.isNum(e)&&e.t)cls+=' txt';if(A.isChanged(e,since))cls+=' chg';if(A.hasFuture(it.id,c.key,d))cls+=' fut';
+    if(selCell&&selCell.i===it.id&&selCell.c===c.key)cls+=' sel';
+    let title=c.name+' · '+A.itemName(it);if(e&&!e.base){title+='\n'+e.from+' 변경: '+A.eText(A.prevOf(e))+' → '+A.eText(e)+(e.reason?'\n사유: '+e.reason:'')}else if(e&&e.t)title+='\n'+e.t;
+    return '<td class="'+cls+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" title="'+esc(title)+'">'+A.eHtml(e)+'</td>';
+  });
+  $('#brandSub').textContent=d+' 기준';
+}
+function renderMargin(){
+  if(A.isEmpty()){$('#mGrid').innerHTML='';return}
+  const d=$('#mDate').value||today(),basis=$('#mBasis').value,mode=$('#mMode').value,q=$('#mSearch').value.trim();
+  const rows=A.DB.items.filter(it=>A.matchItem(it,q,''));
+  const cols=[{key:'__cost',name:'원가 (원)',group:'buy'}].concat(A.DB.columns.filter(c=>c.group!=='buy'));
+  $('#mGrid').innerHTML=gridHtml(rows,cols,(it,c)=>{
+    if(c.key==='__cost'){const cost=A.costAt(it,d,basis);if(!cost)return '<td class="v buy na">-</td>';if(cost.needFx)return '<td class="v buy na">'+esc(cost.e.cur)+' 환율 필요</td>';return '<td class="v buy" title="'+esc(A.eText(cost.e))+'">'+esc(A.fmtN(Math.round(cost.krw*100)/100))+'</td>'}
+    const r=A.marginOf(it,c,d,basis);if(!r)return '<td class="v na"></td>';
+    if(r.unknown)return '<td class="v na" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" title="원가 또는 환율이 없습니다">?</td>';
+    const cls='v'+(r.m<0?' neg':r.p<10?' low':'');
+    return '<td class="'+cls+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" title="'+esc(c.name+' 판매가 '+A.eText(r.s)+' − 원가 '+A.fmtN(Math.round(r.cost.krw))+'원 = '+A.fmtN(Math.round(r.m*100)/100)+'원 ('+r.p.toFixed(1)+'%)')+'">'+esc(mode==='pct'?r.p.toFixed(1)+'%':A.fmtN(Math.round(r.m*100)/100))+'</td>';
+  },{buyLabel:'원가',sellLabel:mode==='pct'?'마진율':'마진 금액 (판매가 − 원가)'});
+}
+
+function openCell(i,c){
+  const it=A.ITEM.get(i),col=A.COL.get(c);if(!it||!col)return;selCell={i,c};
+  $('#dPath').textContent=A.itemLabel(it);$('#dModel').textContent=it.model||'(모델 없음)';$('#dCol').textContent=col.name+(col.group==='buy'?' · 매입가':' · 판매가');
+  A.renderCell($('#dBody'),i,c,{date:$('#tDate').value});$('#drawer').hidden=false;$('#scrim').hidden=false;if(cur()==='table')renderTable();
+}
+function closeDrawer(){$('#drawer').hidden=true;$('#scrim').hidden=true;selCell=null;if(cur()==='table')renderTable()}
+$('#dClose').addEventListener('click',closeDrawer);$('#scrim').addEventListener('click',closeDrawer);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('#modal')&&!$('#modal').hidden)A.closeModal();else if(!$('#drawer').hidden)closeDrawer()}});
+document.addEventListener('click',ev=>{const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#drawer'))openCell(t.dataset.i,t.dataset.c)});
+
+const cur=()=>{const v=location.hash.slice(1);return VIEWS.includes(v)?v:'table'};
+function render(){
+  const v=cur();
+  if(v==='table')renderTable();
+  else if(v==='history'){if(!hist)hist=A.mountHistory($('#v-history'));else hist.refresh()}
+  else if(v==='analysis'){if(!ana)ana=A.mountAnalysis($('#anaBox'));else ana.refresh()}
+  else if(v==='margin'){renderMargin();if(!fx)fx=A.mountFx($('#fxBox'));else fx.refresh()}
+  else if(v==='setup'){if(!setup)setup=A.mountSettings($('#setupBox'));else setup.refresh()}
+}
+function route(){const v=cur();VIEWS.forEach(x=>$('#v-'+x).hidden=x!==v);document.querySelectorAll('.tabs a').forEach(a=>{if(a.dataset.view===v)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});render()}
+window.addEventListener('hashchange',route);
+['tDate','tSearch','tCat','tHi','tHideEmpty'].forEach(id=>$('#'+id).addEventListener('input',()=>{renderTable();A.LS.set('danga.pc',{hi:$('#tHi').value,hide:$('#tHideEmpty').checked})}));
+['mDate','mBasis','mMode','mSearch'].forEach(id=>$('#'+id).addEventListener('input',renderMargin));
+$('#btnSave').addEventListener('click',()=>A.save());
+$('#btnAddItem').addEventListener('click',A.addItemDialog);$('#btnAddCol').addEventListener('click',A.addColDialog);
+$('#btnXlsx').addEventListener('click',()=>A.exportXlsx($('#tDate').value||today()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message)));
+
+let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy();clearTimeout(rT);rT=setTimeout(()=>{const v=cur();if(v==='setup')return;render();if(selCell&&!$('#drawer').hidden&&v!=='table'){}},30)});
+
+$('#tDate').value=today();$('#mDate').value=today();
+const p=A.LS.get('danga.pc');if(p){if(p.hi)$('#tHi').value=p.hi;$('#tHideEmpty').checked=!!p.hide}
+A.renderPill($('#pill'));route();A.autoSync();
+})();
+</script>
+</body>
+</html>
