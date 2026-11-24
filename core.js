@@ -391,12 +391,28 @@ A.mountHistory=function(el,opts){
   function refresh(){
     keepVal(g('col'),colOptions());keepVal(g('cat'),catOptions());
     const q=g('q').value.trim(),col=g('col').value,cat=g('cat').value,f=g('from').value,t=g('to').value,rq=g('reason').value.trim().toLowerCase(),base=g('base').checked;
-    const list=A.DB.entries.filter(e=>{if(!base&&e.base)return false;const it=A.ITEM.get(e.item);if(!it||!A.COL.get(e.col))return false;if(col&&e.col!==col)return false;if(!A.matchItem(it,q,cat))return false;if(f&&e.from<f)return false;if(t&&e.from>t)return false;if(rq&&!((e.reason||'')+' '+(e.note||'')).toLowerCase().includes(rq))return false;return true}).sort((a,b)=>-cmpE(a,b));
+    const match=(e,o)=>{if(!o.base&&e.base)return false;const it=A.ITEM.get(e.item);if(!it||!A.COL.get(e.col))return false;if(o.col&&e.col!==o.col)return false;if(!A.matchItem(it,o.q,o.cat))return false;if(o.f&&e.from<o.f)return false;if(o.t&&e.from>o.t)return false;if(o.rq&&!((e.reason||'')+' '+(e.note||'')).toLowerCase().includes(o.rq))return false;return true};
+    const cond={q,col,cat,f,t,rq,base};
+    const list=A.DB.entries.filter(e=>match(e,cond)).sort((a,b)=>-cmpE(a,b));
     let up=0,down=0;const rows=list.map(e=>{const p=A.prevOf(e),x=A.delta(p,e);if(x&&x.d>0)up++;if(x&&x.d<0)down++;return{e,p,x}});
     const lastCh=A.DB.entries.filter(e=>!e.base).sort(cmpE).pop();
     el.querySelector('[data-stats]').innerHTML='<span class="stat">결과<b>'+list.length+'</b></span><span class="stat">인상<b class="up">'+up+'</b></span><span class="stat">인하<b class="down">'+down+'</b></span><span class="stat">마지막 변경<b>'+esc(lastCh?lastCh.from:'없음')+'</b></span>';
     const out=el.querySelector('[data-out]');
-    if(!list.length){const any=A.DB.entries.some(e=>!e.base);out.innerHTML='<div class="empty"><b>'+(A.isEmpty()?'아직 단가 데이터가 없습니다.':any?'조건에 맞는 변경 기록이 없습니다.':'아직 기준 단가 이후 변경 기록이 없습니다.')+'</b>'+(A.isEmpty()?'설정에서 단가.xlsx를 가져오거나 드라이브에서 불러오세요.':any?'검색 조건을 줄이거나 "기준 단가 포함"을 켜 보세요.':'단가 칸을 눌러 변경을 기록하면 여기에 쌓입니다.')+'</div>';return}
+    if(!list.length){
+      if(A.isEmpty()){out.innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b>설정에서 단가.xlsx를 가져오거나 드라이브에서 불러오세요.</div>';return}
+      const any=A.DB.entries.some(e=>!e.base);
+      const active=[];const cn=A.COL.get(col);
+      if(q)active.push('모델 "'+q+'"');if(cn)active.push('거래처 '+cn.name);if(cat)active.push('대구분 '+cat);if(f||t)active.push('적용일 '+(f||'처음')+' ~ '+(t||'오늘 이후'));if(rq)active.push('사유 "'+rq+'"');
+      const nBase=base?0:A.DB.entries.filter(e=>match(e,Object.assign({},cond,{base:true}))).length;
+      const nOnlyQ=active.length>1||(active.length===1&&!q)?A.DB.entries.filter(e=>match(e,{q,base:true})).length:0;
+      let h='<div class="empty"><b>'+(any||base?'조건에 맞는 기록이 없습니다.':'아직 기준 단가 이후 변경 기록이 없습니다.')+'</b>';
+      if(active.length)h+='<span>지금 조건: '+esc(active.join(' · '))+' (모두 만족해야 나옵니다)</span>';
+      if(!any&&!base)h+='<span>단가 칸을 눌러 변경을 기록하면 여기에 쌓입니다. 처음 가져온 단가는 "기준 단가 포함"을 켜야 보입니다.</span>';
+      h+='<div class="row" style="justify-content:center">';
+      if(nBase)h+='<button class="btn primary" type="button" data-hx="base">기준 단가 포함해서 보기 ('+nBase+'건)</button>';
+      if(nOnlyQ&&q)h+='<button class="btn'+(nBase?'':' primary')+'" type="button" data-hx="onlyq">모델 "'+esc(q)+'"만으로 찾기 ('+nOnlyQ+'건)</button>';
+      if(active.length&&!(nOnlyQ&&q))h+='<button class="btn" type="button" data-hx="reset">조건 초기화</button>';
+      out.innerHTML=h+'</div></div>';return}
     const shown=rows.slice(0,600);
     if(opts.cards){
       out.innerHTML='<div class="cards">'+shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<div class="card click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><div class="top"><span class="model">'+esc(A.itemName(it))+'</span><span class="num hint">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</span></div><div class="sub">'+esc(c.name)+' · '+esc(A.itemLabel(it))+'</div><div class="vals">'+(p?'<span class="hint">'+esc(A.eText(p))+' →</span>':'')+'<b>'+esc(A.eText(e))+'</b>'+A.deltaHtml(x)+'</div><div class="sub">'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+(e.note?' '+esc(e.note):'')+'</div></div>'}).join('')+'</div>';
@@ -406,7 +422,11 @@ A.mountHistory=function(el,opts){
     }
     if(rows.length>600)out.insertAdjacentHTML('beforeend','<p class="hint">처음 600건만 표시합니다. 조건을 좁혀 주세요.</p>');
   }
-  el.addEventListener('input',refresh);refresh();return{refresh};
+  el.addEventListener('input',refresh);
+  el.addEventListener('click',ev=>{const b=ev.target.closest('[data-hx]');if(!b)return;const k=b.dataset.hx;
+    if(k==='onlyq'||k==='reset'){['col','cat','from','to','reason'].forEach(n=>g(n).value='');if(k==='reset')g('q').value=''}
+    g('base').checked=true;if(k==='reset'&&!A.DB.entries.some(e=>!e.base))g('base').checked=true;refresh()});
+  refresh();return{refresh};
 };
 
 /* 변경 분석 */
