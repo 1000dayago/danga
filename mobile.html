@@ -98,8 +98,10 @@ main{padding-block:12px 24px;display:flex;flex-direction:column;gap:12px}
   <section id="v-analysis" hidden></section>
   <section id="v-more" hidden style="display:flex;flex-direction:column;gap:12px">
     <div id="setupBox" style="display:flex;flex-direction:column;gap:12px"></div>
-    <div class="section"><h2>품목 · 거래처 · 내보내기</h2><div class="links"><button class="btn" type="button" id="btnAddItem">품목 추가</button><button class="btn" type="button" id="btnAddCol">거래처 추가</button><button class="btn" type="button" id="btnXlsx">엑셀로 내보내기</button><a class="btn" href="pc.html">PC 화면으로</a></div></div>
-    <div class="section"><label class="field"><span>마진 원가 기준</span><select id="basis"><option value="hana">하나테크 우선, 없으면 덕우</option><option value="dukwoo">덕우 우선, 없으면 하나테크</option></select></label></div>
+    <div class="section"><h2>내보내기</h2><p class="hint">단가 탭에서 고른 기준일로 만듭니다. 이력과 두 날짜 비교는 각 탭에서 내보냅니다.</p>
+      <div class="links"><button class="btn" type="button" id="btnXlsx">단가표 엑셀</button><button class="btn" type="button" id="btnPdf">단가표 PDF</button><button class="btn" type="button" id="mXlsx">마진표 엑셀</button><button class="btn" type="button" id="mPdf">마진표 PDF</button></div>
+      <label class="field"><span>마진 원가 기준</span><select id="basis"><option value="hana">하나테크 우선, 없으면 덕우</option><option value="dukwoo">덕우 우선, 없으면 하나테크</option></select></label></div>
+    <div class="section"><h2>품목 · 거래처</h2><div class="links"><button class="btn" type="button" id="btnAddItem">품목 추가</button><button class="btn" type="button" id="btnAddCol">거래처 추가</button><a class="btn" href="pc.html">PC 화면으로</a></div></div>
     <div class="section" id="fxBox"></div>
   </section>
 </main>
@@ -213,6 +215,10 @@ $('#date').addEventListener('input',()=>{$('#dateNote').textContent=date()===tod
 $('#basis').addEventListener('change',()=>{A.LS.set('danga.m.basis',basis());render()});
 $('#btnSave').addEventListener('click',()=>A.save());
 $('#btnAddItem').addEventListener('click',A.addItemDialog);$('#btnAddCol').addEventListener('click',A.addColDialog);
+const noData=()=>{if(A.isEmpty()){A.toast('단가 데이터가 없습니다. 먼저 엑셀을 가져오세요.');return true}return false};
+$('#btnPdf').addEventListener('click',()=>{if(!noData())A.printPriceTable(date())});
+$('#mXlsx').addEventListener('click',()=>{if(!noData())A.exportMarginXlsx(date(),basis()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message))});
+$('#mPdf').addEventListener('click',()=>{if(!noData())A.printMargin(date(),basis())});
 $('#btnXlsx').addEventListener('click',()=>A.exportXlsx(date()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message)));
 
 let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy();clearTimeout(rT);rT=setTimeout(()=>{if(cur()!=='more'&&!sheetCell)render();if(cur()==='more'&&fx)fx.refresh()},30)});
