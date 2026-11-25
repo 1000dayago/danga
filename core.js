@@ -720,6 +720,125 @@ A.addColDialog=function(){
   });
 };
 
+/* ---------- 엑셀 일괄 변경 ---------- */
+const normName=s=>String(s==null?'':s).replace(/\s+/g,'').replace(/매입가$/,'');
+const cellStr=e=>!e?null:isNum(e)?(e.cur&&e.cur!=='KRW'?e.v+' '+e.cur:e.v):(e.t||null);
+/* parse "3.75", "3,750", "EUR 3.75", "3.75 EUR", "9,000원", "-" */
+function parsePrice(raw){
+  if(raw==null)return null;
+  if(typeof raw==='number')return{v:raw,t:null,cur:null};
+  let s=String(raw).trim();if(!s)return null;
+  if(s==='-')return{v:null,t:'-',cur:'KRW'};
+  let cur=null;const m=/^(EUR|RMB|CNY|USD|KRW|원|€|\$|¥)?\s*([+-]?[\d,]*\.?\d+)\s*(EUR|RMB|CNY|USD|KRW|원|€|\$|¥)?$/i.exec(s.replace(/\s+/g,' '));
+  if(!m)return{bad:true,raw:s};
+  const tag=(m[1]||m[3]||'').toUpperCase();
+  cur=tag==='원'||tag==='KRW'?'KRW':tag==='€'||tag==='EUR'?'EUR':tag==='$'||tag==='USD'?'USD':tag==='¥'||tag==='RMB'||tag==='CNY'?'RMB':null;
+  return{v:Number(m[2].replace(/,/g,'')),t:null,cur};
+}
+A.exportTemplate=async function(d){
+  const X=await A.loadXlsx();const cols=A.DB.columns;
+  const head=['대구분','소구분','MODEL'].concat(cols.map(c=>c.name+(c.group==='buy'?' 매입가':'')),['품목ID (수정 금지)']);
+  const rows=A.DB.items.map(it=>[it.cat1,it.cat2,it.model].concat(cols.map(c=>cellStr(A.entryAt(it.id,c.key,d))),[it.id]));
+  const ws=X.utils.aoa_to_sheet([head].concat(rows));
+  for(let r=1;r<=rows.length;r++)for(let c=3;c<3+cols.length;c++){const a=X.utils.encode_cell({r,c});if(ws[a]&&ws[a].t==='n')ws[a].z='#,##0.##'}
+  ws['!cols']=[{wch:12},{wch:12},{wch:20}].concat(cols.map(()=>({wch:11})),[{wch:16}]);
+  ws['!autofilter']={ref:X.utils.encode_range({s:{r:0,c:0},e:{r:rows.length,c:head.length-1}})};
+  const guide=[['단가 일괄 변경 양식 사용법'],[],['기준일',d],['만든 시각',stampStr()],[],
+    ['1','"단가입력" 시트에서 바꿀 단가만 고칩니다. 나머지 칸은 그대로 두세요.'],
+    ['2','외화 단가는 "3.9 EUR", "1.3 RMB", "12 USD"처럼 통화를 함께 적습니다. 통화를 안 적으면 그 칸의 기존 통화(없으면 원)로 봅니다.'],
+    ['3','새 품목은 맨 아래에 행을 추가하고 대구분·소구분·MODEL과 단가를 적습니다. 품목ID 칸은 비워 둡니다.'],
+    ['4','빈칸은 "변경 없음"으로 처리됩니다. 거래를 끊으려면 앱의 미리보기에서 따로 선택하세요.'],
+    ['5','행 순서를 바꾸거나 정렬·필터를 써도 됩니다. 품목ID로 품목을 찾습니다.'],
+    ['6','거래처(열) 이름은 바꾸지 마세요. 새 거래처는 앱에서 먼저 추가한 뒤 양식을 다시 받으세요.'],
+    ['7','앱의 "일괄 변경 → 양식 올리기"로 올리면 바뀐 칸만 미리 보여 줍니다. 적용일과 사유를 정하고 반영합니다.']];
+  const gs=X.utils.aoa_to_sheet(guide);gs['!cols']=[{wch:10},{wch:100}];
+  const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,'단가입력');X.utils.book_append_sheet(wb,gs,'사용법');
+  A.saveBlob('단가_일괄변경양식_'+d+'.xlsx',new Blob([X.write(wb,{type:'array',bookType:'xlsx'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+};
+A.parseBulk=function(X,wb,d){
+  const name=wb.SheetNames.includes('단가입력')?'단가입력':wb.SheetNames[0];const ws=wb.Sheets[name];
+  if(!ws||!ws['!ref'])throw new Error('엑셀 시트가 비어 있습니다.');
+  const aoa=X.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:false});
+  let hr=-1;for(let r=0;r<Math.min(aoa.length,10);r++){const row=aoa[r]||[];if(normName(row[2]).toUpperCase()==='MODEL'||normName(row[0])==='대구분'){hr=r;break}}
+  if(hr<0)throw new Error('머리글 행(대구분 · 소구분 · MODEL)을 찾지 못했습니다. 앱에서 받은 양식을 쓰세요.');
+  const head=aoa[hr];const byName=new Map(A.DB.columns.map(c=>[normName(c.name),c]));
+  const colMap=[],unknownCols=[];let idCol=-1;
+  for(let c=3;c<head.length;c++){const h=head[c];if(h==null||String(h).trim()==='')continue;
+    if(/품목ID/.test(String(h))){idCol=c;continue}
+    const col=byName.get(normName(h));if(col)colMap.push({c,col});else unknownCols.push(norm(h))}
+  const changes=[],newItems=[],bad=[],blanks=[],seen=new Set();let p1='',p2='',same=0;
+  for(let r=hr+1;r<aoa.length;r++){
+    const row=aoa[r]||[];const a=row[0],b=row[1],md=row[2];
+    const hasPrice=colMap.some(({c})=>row[c]!=null&&String(row[c]).trim()!=='');
+    if(a==null&&b==null&&md==null&&!hasPrice)continue;
+    const cat1=a!=null&&String(a).trim()?norm(a):p1;const cat2=b!=null&&String(b).trim()?norm(b):(a!=null&&String(a).trim()?'':p2);
+    p1=cat1;p2=cat2;const model=md==null?'':norm(md);
+    let it=null;const id=idCol>=0&&row[idCol]!=null?String(row[idCol]).trim():'';
+    if(id&&A.ITEM.get(id))it=A.ITEM.get(id);
+    if(!it)it=A.DB.items.find(x=>x.cat1===cat1&&x.cat2===cat2&&x.model===model)||null;
+    if(it&&seen.has(it.id)){bad.push({row:r+1,col:'',raw:'같은 품목이 두 번 나옵니다: '+A.itemName(it)});continue}
+    if(it)seen.add(it.id);
+    if(!it){
+      if(!cat1||(!model&&!cat2)){if(hasPrice)bad.push({row:r+1,col:'',raw:'대구분이나 MODEL이 없는 행'});continue}
+      const prices=[];
+      for(const {c,col} of colMap){const pv=parsePrice(row[c]);if(!pv)continue;if(pv.bad){bad.push({row:r+1,col:col.name,raw:pv.raw});continue}prices.push({col,v:pv.v,t:pv.t,cur:pv.cur||'KRW'})}
+      newItems.push({cat1,cat2,model,prices,row:r+1});continue;
+    }
+    for(const {c,col} of colMap){
+      const cur=A.entryAt(it.id,col.key,d);const pv=parsePrice(row[c]);
+      if(!pv){if(A.hasVal(cur))blanks.push({it,col,cur});continue}
+      if(pv.bad){if(cur&&!isNum(cur)&&cur.t&&norm(cur.t)===norm(pv.raw)){same++;continue}bad.push({row:r+1,col:col.name,raw:pv.raw});continue}
+      const next={v:pv.v,t:pv.t,cur:pv.cur||(cur&&cur.cur)||'KRW'};
+      if(cur&&A.hasVal(cur)&&A.sameVal(cur,next)){same++;continue}
+      changes.push({it,col,cur:A.hasVal(cur)?cur:null,next});
+    }
+  }
+  return{sheet:name,changes,newItems,bad,blanks,unknownCols,same};
+};
+A.bulkDialog=function(opts){
+  opts=opts||{};const d=opts.date||today();
+  openModal('<form class="bulk" autocomplete="off"><h2>엑셀로 단가 일괄 변경</h2>'+
+    '<div class="section" style="padding:10px"><b>1. 양식 받기</b><p class="hint">'+esc(d)+' 기준 단가가 채워진 엑셀입니다. 바꿀 칸만 고치고, 새 품목은 맨 아래 행에 추가합니다. 외화는 "3.9 EUR"처럼 적습니다.</p><div class="row"><button class="btn" type="button" data-bk="tpl">양식 내려받기</button></div></div>'+
+    '<div class="section" style="padding:10px"><b>2. 고친 양식 올리기</b><p class="hint">앱에서 받은 양식이나 "엑셀로 내보내기"로 받은 단가표를 올릴 수 있습니다.</p><div class="row"><label class="btn primary" for="bulkIn">파일 선택</label><input type="file" id="bulkIn" accept=".xlsx,.xls" hidden><span class="hint" data-fname></span></div></div>'+
+    '<div data-preview></div><p class="hint up" data-err></p>'+
+    '<div class="row-end"><button class="btn" type="button" data-cancel>닫기</button><button class="btn primary" type="submit" data-apply hidden>반영하기</button></div></form>',f=>{
+    const err=m=>{f.querySelector('[data-err]').textContent=m;return false};
+    if(!res)return false;
+    const from=f.querySelector('[name=from]').value,reason=f.querySelector('[name=reason]').value,note=f.querySelector('[name=note]').value.trim();
+    if(!from)return err('적용일을 입력하세요.');
+    const pick=sel=>[...f.querySelectorAll(sel)].filter(x=>x.checked).map(x=>Number(x.value));
+    const ch=pick('[data-ck="c"]'),ni=pick('[data-ck="n"]'),bl=pick('[data-ck="b"]');
+    if(!ch.length&&!ni.length&&!bl.length)return err('반영할 항목을 하나 이상 선택하세요.');
+    let n=0;
+    for(const i of ch){const c=res.changes[i];A.addEntry({item:c.it.id,col:c.col.key,v:c.next.v,t:c.next.t,cur:c.next.cur,from,reason,note:note||'엑셀 일괄 변경'});n++}
+    for(const i of bl){const c=res.blanks[i];A.addEntry({item:c.it.id,col:c.col.key,v:null,t:null,cur:c.cur.cur||'KRW',from,reason:'거래 중단',note:note||'엑셀 일괄 변경'});n++}
+    let k=0;for(const i of ni){const x=res.newItems[i];if(A.DB.items.some(y=>y.cat1===x.cat1&&y.cat2===x.cat2&&y.model===x.model))continue;const it=A.addItem({cat1:x.cat1,cat2:x.cat2,model:x.model});k++;for(const p of x.prices){A.addEntry({item:it.id,col:p.col.key,v:p.v,t:p.t,cur:p.cur,from,reason:'신규 거래',note:note||'엑셀 일괄 변경'});n++}}
+    A.toast('단가 '+n+'건'+(k?', 새 품목 '+k+'개':'')+'를 반영했습니다. 드라이브에 저장하세요.');
+  },'wide');
+  const f=document.querySelector('#modal form.bulk');let res=null;
+  f.querySelector('[data-bk="tpl"]').addEventListener('click',()=>A.exportTemplate(d).then(()=>A.toast('양식을 내려받았습니다.')).catch(e=>A.toast(e.message)));
+  f.querySelector('#bulkIn').addEventListener('change',ev=>{
+    const file=ev.target.files&&ev.target.files[0];if(!file)return;ev.target.value='';f.querySelector('[data-fname]').textContent=file.name;f.querySelector('[data-err]').textContent='';
+    const rd=new FileReader();rd.onload=async()=>{try{const X=await A.loadXlsx();res=A.parseBulk(X,X.read(rd.result,{type:'array'}),d);renderPreview()}catch(e){res=null;f.querySelector('[data-preview]').innerHTML='';f.querySelector('[data-apply]').hidden=true;f.querySelector('[data-err]').textContent=e.message}};rd.readAsArrayBuffer(file);
+  });
+  function renderPreview(){
+    const R=res;const up=R.changes.filter(c=>{const x=A.delta(c.cur,{v:c.next.v,cur:c.next.cur});return x&&x.d>0}).length,down=R.changes.filter(c=>{const x=A.delta(c.cur,{v:c.next.v,cur:c.next.cur});return x&&x.d<0}).length;
+    let h='<div class="section" style="padding:10px"><b>3. 미리보기</b><div class="stats"><span class="stat">바뀐 칸<b>'+R.changes.length+'</b></span><span class="stat">인상<b class="up">'+up+'</b></span><span class="stat">인하<b class="down">'+down+'</b></span><span class="stat">새 품목<b>'+R.newItems.length+'</b></span><span class="stat">그대로<b>'+R.same+'</b></span></div>';
+    if(R.unknownCols.length)h+='<p class="hint up">모르는 거래처 열은 반영하지 않습니다: '+esc(R.unknownCols.join(', '))+'. 앱에서 거래처를 먼저 추가하세요.</p>';
+    if(R.bad.length)h+='<p class="hint up">읽지 못한 칸 '+R.bad.length+'개 (반영 안 함): '+esc(R.bad.slice(0,8).map(b=>b.row+'행'+(b.col?' '+b.col:'')+' "'+b.raw+'"').join(', '))+(R.bad.length>8?' 외':'')+'</p>';
+    const tbl=(rows,kind)=>'<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table class="list"><thead><tr><th><input type="checkbox" data-all="'+kind+'" checked aria-label="전체 선택"></th><th>모델</th><th>거래처</th><th class="r">지금</th><th class="r">새 단가</th><th class="r">증감</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    if(R.changes.length)h+='<h2 style="margin-top:6px">바뀐 단가</h2>'+tbl(R.changes.map((c,i)=>{const nx={v:c.next.v,t:c.next.t,cur:c.next.cur};return '<tr><td><input type="checkbox" data-ck="c" value="'+i+'" checked></td><td class="num">'+esc(A.itemName(c.it))+'<br><span class="hint">'+esc(A.itemLabel(c.it))+'</span></td><td>'+esc(c.col.name)+'</td><td class="r num">'+esc(A.eText(c.cur))+'</td><td class="r num"><b>'+esc(A.eText(nx))+'</b></td><td class="r">'+A.deltaHtml(A.delta(c.cur,nx))+'</td></tr>'}).join(''),'c');
+    if(R.newItems.length)h+='<h2 style="margin-top:6px">새 품목</h2><div class="tbl-wrap"><table class="list"><tbody>'+R.newItems.map((x,i)=>'<tr><td><input type="checkbox" data-ck="n" value="'+i+'" checked></td><td>'+esc([x.cat1,x.cat2].filter(Boolean).join(' › '))+' › <b class="num">'+esc(x.model||'(모델 없음)')+'</b><br><span class="hint">단가 '+x.prices.length+'곳: '+esc(x.prices.slice(0,6).map(p=>p.col.name+' '+A.eText(p)).join(', '))+(x.prices.length>6?' …':'')+'</span></td></tr>').join('')+'</tbody></table></div>';
+    if(R.blanks.length)h+='<details style="margin-top:6px"><summary class="hint">비어 있는 칸 '+R.blanks.length+'개는 변경 없음으로 둡니다. 거래 없음으로 바꿀 칸이 있으면 펼쳐서 고르세요.</summary>'+tbl(R.blanks.map((c,i)=>'<tr><td><input type="checkbox" data-ck="b" value="'+i+'"></td><td class="num">'+esc(A.itemName(c.it))+'</td><td>'+esc(c.col.name)+'</td><td class="r num">'+esc(A.eText(c.cur))+'</td><td class="r">거래 없음</td><td></td></tr>').join(''),'b').replace('data-all="b" checked','data-all="b"')+'</details>';
+    const any=R.changes.length||R.newItems.length||R.blanks.length;
+    if(any)h+='<div class="form" style="margin-top:8px"><label class="field"><span>적용일</span><input type="date" name="from" value="'+esc(d)+'"></label><label class="field"><span>사유</span><select name="reason">'+REASONS.map(r=>'<option'+(r==='연간 단가 협상'?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select></label><label class="field full"><span>비고</span><input type="text" name="note" placeholder="예: 2027년 단가 협상 결과"></label></div>';
+    else h+='<p class="hint">기존 단가와 다른 칸이 없습니다.</p>';
+    f.querySelector('[data-preview]').innerHTML=h+'</div>';
+    f.querySelector('[data-apply]').hidden=!any;
+    f.querySelectorAll('[data-all]').forEach(a=>a.addEventListener('change',()=>f.querySelectorAll('[data-ck="'+a.dataset.all+'"]').forEach(x=>x.checked=a.checked)));
+  }
+};
+
 /* service worker for home-screen install & offline viewing */
 if('serviceWorker' in navigator&&location.protocol==='https:')window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 window.addEventListener('beforeunload',ev=>{if(A.dirty>0&&A.settings.connected){ev.preventDefault();ev.returnValue=''}});
