@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="common.css?v=19">
+<link rel="stylesheet" href="common.css?v=20">
 <style>
 /* PC: left menu + page header with save/undo + one working area; price table is Excel-like with a right-side history drawer */
 .app{display:grid;grid-template-columns:216px 1fr;min-height:100vh}
@@ -72,10 +72,13 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .ib.add{margin-left:6px;border:1px solid var(--line);width:19px;height:19px}
 .ib.del:hover,.ib.del.arm{background:rgba(220,38,38,.14);color:#dc2626}
 .ib.del.arm{outline:1px solid #dc2626}
-.grid th.hc{position:sticky;cursor:grab}.grid thead th.drop-before{box-shadow:inset 3px 0 0 var(--accent)}.grid thead th.drop-after{box-shadow:inset -3px 0 0 var(--accent)}.grid th.hc .ia{display:inline-flex;gap:0;margin-left:2px;opacity:0;transition:opacity .12s}
-.grid th.hc .ia.on,.grid th.hc:hover .ia,.grid th.hc:focus-within .ia,.ib.arm{opacity:1}
-.grid th.hc .ia:has(.arm){opacity:1}
-@media (hover:none){.grid th.hc .ia{opacity:.7}}
+.grid th.hc{position:sticky;cursor:grab}
+.grid th.hc .ia{display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);z-index:8;gap:1px;padding:3px 4px;background:var(--surface,#fff);border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 14px rgba(0,0,0,.18);white-space:nowrap}
+.grid th.hc:hover .ia,.grid th.hc:focus-within .ia,.grid th.hc .ia.on{display:inline-flex}
+.grid th.hc:last-child .ia,.grid th.hc:nth-last-child(2) .ia{left:auto;right:0;transform:none}
+.grid th.hc:first-child .ia{left:0;transform:none}
+.grid thead th.drop-before{box-shadow:inset 3px 0 0 var(--accent)}.grid thead th.drop-after{box-shadow:inset -3px 0 0 var(--accent)}
+.grid td.md .rowclr{opacity:0;margin-left:4px;width:18px;height:18px}.grid tr:hover td.md .rowclr{opacity:.8}
 body.ro .ib{display:none}
 .grid th.editable:hover,.grid td.md.editable:hover{text-decoration:underline;color:var(--accent)}
 .grid td.neg{color:var(--up);font-weight:600}
@@ -160,8 +163,8 @@ body.ro .ib{display:none}
   <div class="drawer-body" id="dBody"></div>
 </aside>
 
-<script src="core.js?v=19"></script>
-<script src="tools.js?v=19"></script>
+<script src="core.js?v=20"></script>
+<script src="tools.js?v=20"></script>
 <script>
 (function(){
 "use strict";
@@ -192,7 +195,7 @@ function gridHtml(rows,cols,cellFn,opt){
   const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="ib add" data-gadd="'+g+'" title="'+(g==='buy'?'매입처':'판매처')+' 추가" aria-label="추가">'+A.icon('plus',13)+'</button>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입처')+(opt.buyLabel?'':gm('buy'))+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+(opt.sellLabel?'':gm('sell'))+'</th>';
-  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly&&opt.manage;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' hc':'')+'"'+(real?' data-ck="'+esc(c.key)+'" data-side="'+(c.group==='buy'?'buy':'sell')+'" draggable="true" title="끌어서 위치 이동"':'')+'><span class="cn">'+esc(c.name)+'</span>'+(real?'<span class="ia'+(opt.edit?' on':'')+'"><button type="button" class="ib" data-colmv="left" data-ck2="'+esc(c.key)+'" title="왼쪽으로" aria-label="왼쪽">'+A.icon('left',12)+'</button><button type="button" class="ib" data-colmv="right" data-ck2="'+esc(c.key)+'" title="오른쪽으로" aria-label="오른쪽">'+A.icon('right',12)+'</button>'+(opt.edit?'':'<button type="button" class="ib" data-edit-col="'+esc(c.key)+'" title="이름·구분 수정" aria-label="수정">'+A.icon('pencil',12)+'</button><button type="button" class="ib del" data-del-col="'+esc(c.key)+'" title="삭제 (한 번 더 누르면 실행)" aria-label="삭제">'+A.icon('trash',12)+'</button>')+'</span>':'')+'</th>'}).join('')+'</tr></thead><tbody>';
+  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly&&opt.manage;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' hc':'')+'"'+(real?' data-ck="'+esc(c.key)+'" data-side="'+(c.group==='buy'?'buy':'sell')+'" draggable="true" title="끌어서 위치 이동"':'')+'><span class="cn">'+esc(c.name)+'</span>'+(real?'<span class="ia'+(opt.edit?' on':'')+'"><button type="button" class="ib" data-colmv="left" data-ck2="'+esc(c.key)+'" title="왼쪽으로" aria-label="왼쪽">'+A.icon('left',12)+'</button><button type="button" class="ib" data-colmv="right" data-ck2="'+esc(c.key)+'" title="오른쪽으로" aria-label="오른쪽">'+A.icon('right',12)+'</button>'+(opt.edit?'':'<button type="button" class="ib" data-edit-col="'+esc(c.key)+'" title="이름·구분 수정" aria-label="수정">'+A.icon('pencil',12)+'</button><button type="button" class="ib" data-clr-col="'+esc(c.key)+'" title="이 업체 단가 전부 지우기" aria-label="단가 지우기">'+A.icon('eraser',12)+'</button><button type="button" class="ib del" data-del-col="'+esc(c.key)+'" title="삭제 (한 번 더 누르면 실행)" aria-label="삭제">'+A.icon('trash',12)+'</button>')+'</span>':'')+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   const mvb=(lv,attrs)=>'<span class="mvg"><button type="button" class="mvb" data-mv="'+lv+'" data-dir="up" '+attrs+' title="위로">▲</button><button type="button" class="mvb" data-mv="'+lv+'" data-dir="down" '+attrs+' title="아래로">▼</button></span>';
   for(let r=0;r<rows.length;r++){const it=rows[r];
@@ -206,6 +209,7 @@ function gridHtml(rows,cols,cellFn,opt){
     const ed=A.readOnly||opt.edit;
     h+='<td class="md'+(ed?'':' editable')+'"'+(ed?'':' data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제"')+'>'+
       (opt.edit?'<span class="oh" draggable="true" data-dk="item" data-id="'+esc(it.id)+'" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 품목 순서 바꾸기">⠿</span>'+mvb('item','data-id="'+esc(it.id)+'"')+' ':'')+esc(it.model)+
+      (opt.edit||!opt.manage||A.readOnly?'':'<button type="button" class="ib rowclr" data-clr-item="'+esc(it.id)+'" title="이 품목 단가 전부 지우기" aria-label="단가 지우기">'+A.icon('eraser',12)+'</button>')+
       (opt.edit?'':'<button type="button" class="pinb'+(A.isFav(it.id)?' on':'')+'" data-pinitem="'+esc(it.id)+'" title="품목 맨 위에 고정">'+A.icon('pin',13)+'</button>')+'</td>';
     for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
   return h+'</tbody>';
@@ -275,6 +279,8 @@ document.addEventListener('click',ev=>{
   const pc=ev.target.closest('[data-pincat]');if(pc){A.togglePinCat(pc.dataset.pincat);return}
   const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
   const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
+  const ci=ev.target.closest('[data-clr-item]');if(ci){A.clearPricesDialog('item',ci.dataset.clrItem);return}
+  const cc=ev.target.closest('[data-clr-col]');if(cc){A.clearPricesDialog('col',cc.dataset.clrCol);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
   const cmv=ev.target.closest('[data-colmv]');if(cmv){const r=A.moveColStep(cmv.dataset.ck2,cmv.dataset.colmv);if(r==='group')A.toast('그룹 전체를 함께 옮겼습니다.');return}
   const gad=ev.target.closest('[data-gadd]');if(gad){A.addColDialog(gad.dataset.gadd);return}

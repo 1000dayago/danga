@@ -928,7 +928,7 @@ function mountSalesSettings(el){
   return{refresh:fill};
 }
 /* ---------- 앱 버전 (sw.js 의 CACHE 번호와 같이 올립니다) ---------- */
-A.VERSION=19;A.BUILD='2026-11-25';
+A.VERSION=20;A.BUILD='2026-11-25';
 A.verText=()=>'v'+A.VERSION+' · '+A.BUILD;
 A.checkUpdate=async function(){
   try{
@@ -1237,6 +1237,22 @@ A.bulkDialog=function(opts){
 const NEWV='__new__';
 const optH=(v,l,sel)=>'<option value="'+esc(v)+'"'+(sel?' selected':'')+'>'+esc(l)+'</option>';
 const armBtn=(btn,label,fn)=>{if(btn.dataset.armed){fn();return}btn.dataset.armed='1';const o=btn.textContent;btn.textContent=label;setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.textContent=o}},5000)};
+/* ---------- 단가 전부 지우기 (행 = 품목, 열 = 업체) ----------
+   품목/업체 자체는 남기고, 그 품목/업체의 단가 기록(이력 포함)만 모두 지웁니다. 되돌리기 가능. */
+A.countPrices=(kind,id)=>A.DB.entries.filter(e=>kind==='item'?e.item===id:e.col===id);
+A.clearPrices=(kind,id)=>{const es=A.countPrices(kind,id);if(!es.length)return 0;
+  const ids=new Set(es.map(e=>e.id));A.DB.entries=A.DB.entries.filter(e=>!ids.has(e.id));A.DB.deleted.push(...ids);
+  const nm=kind==='item'?A.itemName(A.ITEM.get(id)||{}):(A.COL.get(id)||{}).name;
+  logChange('단가 전부 지우기: '+(kind==='item'?'품목 ':'업체 ')+nm+' ('+es.length+'건)');A.reindex();A.touch(1,'단가 전부 지우기');return es.length};
+A.clearPricesDialog=function(kind,id){
+  const isItem=kind==='item',it=isItem?A.ITEM.get(id):null,col=isItem?null:A.COL.get(id);if(!it&&!col)return;
+  const es=A.countPrices(kind,id),now=isItem?A.DB.columns.filter(c=>A.hasVal(A.entryAt(id,c.key,today()))).length:A.DB.items.filter(i=>A.hasVal(A.entryAt(i.id,id,today()))).length;
+  const nm=isItem?A.itemLabel(it):col.name;
+  openModal('<form class="clrp"><h2>단가 전부 지우기</h2><p><b>'+esc(nm)+'</b></p><p class="hint">'+(isItem?'이 품목':'이 업체')+'의 단가 기록 <b>'+es.length+'건</b>(현재 단가 '+now+(isItem?'곳':'개 품목')+' + 변경 이력)을 모두 지웁니다. '+(isItem?'품목':'업체')+' 자체는 남고 칸이 빈칸이 됩니다. 지운 뒤 바로 되돌리기는 가능하지만, 드라이브에 저장하면 복구할 수 없습니다.</p>'+
+    '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn danger" type="button" data-go'+(es.length?'':' disabled')+'>'+(es.length?'전부 지우기':'지울 단가가 없습니다')+'</button></div></form>',()=>{});
+  const f=document.querySelector('#modal form.clrp'),b=f.querySelector('[data-go]');
+  b.addEventListener('click',()=>armBtn(b,'한 번 더 누르면 '+es.length+'건 삭제',()=>{const n=A.clearPrices(kind,id);A.closeModal();A.toast(nm+' 단가 '+n+'건을 지웠습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}));
+};
 A.editItemDialog=function(id,opts){
   opts=opts||{};const it=A.ITEM.get(id);if(!it)return;
   const nPrices=A.DB.columns.filter(c=>A.hasVal(A.entryAt(it.id,c.key,today()))).length,nHist=A.DB.entries.filter(e=>e.item===id&&!e.base).length;
@@ -1248,6 +1264,7 @@ A.editItemDialog=function(id,opts){
     '<label class="field full"><span>MODEL</span><input type="text" name="model" value="'+esc(it.model)+'"></label></div>'+
     '<p class="hint">대구분·소구분을 바꾸면 그 구분으로 옮겨집니다. 단가와 이력은 그대로 따라갑니다.</p>'+
     '<div class="section" style="padding:10px"><b>품목 삭제</b><p class="hint">단종 등으로 더 이상 쓰지 않는 품목을 단가표에서 뺍니다. 현재 단가 '+nPrices+'곳, 변경 이력 '+nHist+'건은 지우지 않고 보관하며, 관리 화면에서 복원할 수 있습니다.</p><div class="row"><button class="btn danger" type="button" data-del>이 품목 삭제</button></div></div>'+
+    '<div class="section" style="padding:10px"><b>단가만 전부 지우기</b><p class="hint">품목은 두고 모든 업체의 단가와 이력만 지웁니다.</p><div class="row"><button class="btn" type="button" data-clr>이 품목 단가 전부 지우기</button></div></div>'+
     '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">저장</button></div></form>',f=>{
     const err=m=>{f.querySelector('[data-err]').textContent=m;return false};
     const c1=f.c1sel.value===NEWV?norm(f.c1new.value):f.c1sel.value,c2=f.c2sel.value===NEWV?norm(f.c2new.value):f.c2sel.value,md=norm(f.model.value);
@@ -1263,6 +1280,7 @@ A.editItemDialog=function(id,opts){
     f.c2sel.innerHTML=c2s.map(c=>optH(c,c||'(소구분 없음)',c===want)).join('')+(c2s.includes('')?'':optH('','(소구분 없음)',want===''))+optH(NEWV,'+ 새 소구분',want===NEWV);
     f.querySelector('[data-new2]').hidden=f.c2sel.value!==NEWV};
   f.c1sel.addEventListener('change',()=>fill2(false));f.c2sel.addEventListener('change',()=>{f.querySelector('[data-new2]').hidden=f.c2sel.value!==NEWV});fill2(true);
+  f.querySelector('[data-clr]').addEventListener('click',()=>{A.closeModal();A.clearPricesDialog('item',id)});
   f.querySelector('[data-del]').addEventListener('click',ev=>armBtn(ev.currentTarget,'한 번 더 누르면 삭제',()=>{A.removeItem(id);A.closeModal();A.toast(A.itemName(it)+' 품목을 삭제했습니다. 관리 화면에서 복원할 수 있습니다.');if(opts.onDelete)opts.onDelete()}));
   f.model.focus();
 };
@@ -1273,6 +1291,7 @@ A.editColDialog=function(key){
     '<label class="field"><span>거래처 이름</span><input type="text" name="nm" value="'+esc(c.name)+'" required></label>'+
     '<label class="field"><span>구분</span><select name="g">'+optH('sell','판매처',c.group!=='buy')+optH('buy','매입처',c.group==='buy')+'</select></label>'+
     '<div class="section" style="padding:10px"><b>거래처 삭제</b><p class="hint">폐업이나 거래 종료로 없어진 거래처를 단가표, 양식, 마진에서 뺍니다. 지금 단가가 있는 품목 '+n+'개와 과거 기록은 지우지 않고 보관하며, 관리 화면에서 복원할 수 있습니다.</p><div class="row"><button class="btn danger" type="button" data-del>이 거래처 삭제</button></div></div>'+
+    '<div class="section" style="padding:10px"><b>단가만 전부 지우기</b><p class="hint">업체는 두고 모든 품목의 단가와 이력만 지웁니다.</p><div class="row"><button class="btn" type="button" data-clr>이 업체 단가 전부 지우기</button></div></div>'+
     '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">저장</button></div></form>',f=>{
     const nm=norm(f.nm.value);if(!nm){f.querySelector('[data-err]').textContent='이름을 입력하세요.';return false}
     if(A.DB.columns.some(x=>x.key!==key&&x.name===nm)){f.querySelector('[data-err]').textContent='같은 이름의 거래처가 있습니다.';return false}
@@ -1280,6 +1299,7 @@ A.editColDialog=function(key){
     A.updateColumn(key,{name:nm,group:f.g.value});A.toast('거래처를 수정했습니다. 드라이브 저장 전입니다.');
   });
   const f=document.querySelector('#modal form.editcol');
+  f.querySelector('[data-clr]').addEventListener('click',()=>{A.closeModal();A.clearPricesDialog('col',key)});
   f.querySelector('[data-del]').addEventListener('click',ev=>armBtn(ev.currentTarget,'한 번 더 누르면 삭제',()=>{A.removeColumn(key);A.closeModal();A.toast(c.name+' 거래처를 삭제했습니다. 관리 화면에서 복원할 수 있습니다.')}));
 };
 A.renameCatDialog=function(level,cat1,name){
