@@ -6,6 +6,11 @@ const A=window.Danga;if(!A)return;
 const {$,esc,today,addDays,fmtN,shortDT,REASONS}=A;
 const isNum=A.isNum;
 const pad=n=>String(n).padStart(2,'0');
+const isoDate=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const nextMonth1=()=>{const d=new Date();return isoDate(new Date(d.getFullYear(),d.getMonth()+1,1))};
+const nextQuarter1=()=>{const d=new Date();return isoDate(new Date(d.getFullYear(),(Math.floor(d.getMonth()/3)+1)*3,1))};
+const nextYear1=()=>isoDate(new Date(new Date().getFullYear()+1,0,1));
+A.groupButtons=()=>A.DB.groups.filter(g=>A.groupKeys(g.id).length).map(g=>'<button type="button" class="btn small" data-grp="'+esc(g.id)+'">'+esc(g.name)+'</button>').join('');
 
 /* ---------- icons ---------- */
 const P={home:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',table:'M3 5h18v14H3zM3 10h18M9 10v9',clock:'M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2',chart:'M4 20V10M10 20V4M16 20v-7M22 20H2',percent:'M19 5L5 19M7 5a2 2 0 100 4 2 2 0 000-4zM17 15a2 2 0 100 4 2 2 0 000-4z',tools:'M14 6l4 4-9 9H5v-4zM13 7l4 4',folder:'M3 6h6l2 2h10v11H3z',gear:'M12 8a4 4 0 100 8 4 4 0 000-8zM12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2',more:'M5 12h.01M12 12h.01M19 12h.01',undo:'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',star:'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',plus:'M12 5v14M5 12h14',file:'M6 3h9l4 4v14H6zM14 3v5h5',calendar:'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',search:'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',save:'M5 4h12l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',alert:'M12 3l10 18H2zM12 10v5M12 18h.01',export:'M12 3v12M7 8l5-5 5 5M5 21h14',users:'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20c0-3 3-5 6-5s6 2 6 5M17 11a3 3 0 100-6M21 20c0-2-1-4-3-4.5',flask:'M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3'};
@@ -42,7 +47,7 @@ A.mountUpcoming=function(el){
     const groups=[];for(const e of list){let g=groups[groups.length-1];if(!g||g.d!==e.from){g={d:e.from,rows:[]};groups.push(g)}g.rows.push(e)}
     el.innerHTML='<p class="hint">오늘('+esc(t)+') 이후에 적용되는 단가입니다. 적용일이 되면 단가표에 자동으로 반영됩니다.</p>'+groups.map(g=>
       '<div class="section" style="margin-bottom:10px"><div class="row" style="justify-content:space-between"><h2>'+esc(g.d)+'</h2><span class="tag fut">D-'+days(g.d)+' · '+g.rows.length+'건</span></div><div class="tbl-wrap"><table class="list"><thead><tr><th>구분</th><th>모델</th><th>거래처</th><th class="r">지금</th><th class="r">예정</th><th class="r">증감</th><th>사유</th><th></th></tr></thead><tbody>'+
-      g.rows.map(e=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col),now=A.entryAt(e.item,e.col,t);return '<tr class="click" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'"><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+esc(A.eText(now))+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(A.delta(now,e))+'</td><td>'+esc(e.reason||'')+'</td><td class="r"><button class="btn small danger" type="button" data-cancel-entry="'+esc(e.id)+'">취소</button></td></tr>'}).join('')+'</tbody></table></div></div>').join('');
+      g.rows.map(e=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col),now=A.entryAt(e.item,e.col,t);return '<tr class="click" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'"><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+esc(A.eText(now))+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(A.delta(now,e))+'</td><td>'+esc(e.reason||'')+(e.bl?'<br><span class="hint">'+esc(e.bl)+'</span>':'')+'</td><td class="r"><button class="btn small danger" type="button" data-cancel-entry="'+esc(e.id)+'">취소</button></td></tr>'}).join('')+'</tbody></table></div></div>').join('');
   }
   el.addEventListener('click',ev=>{const b=ev.target.closest('[data-cancel-entry]');if(!b)return;ev.stopPropagation();
     if(b.dataset.armed){A.deleteEntry(b.dataset.cancelEntry);A.toast('예정 단가를 취소했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}
@@ -53,20 +58,21 @@ A.mountUpcoming=function(el){
 /* ---------- 거래처 · 매입처 비교 ---------- */
 A.mountCompare=function(el){
   let sel=A.LS.get('danga.cmp');
-  el.innerHTML='<div class="section"><label class="field"><span>품목 찾기</span><input type="search" data-q placeholder="모델명 일부 (예: 0580)"></label><div class="pick" data-list></div></div><div data-detail style="display:flex;flex-direction:column;gap:14px"></div><div class="section" data-spread></div>';
-  const qEl=el.querySelector('[data-q]'),listEl=el.querySelector('[data-list]'),det=el.querySelector('[data-detail]'),spr=el.querySelector('[data-spread]');
+  el.innerHTML='<div class="section"><label class="field"><span>품목 찾기</span><input type="search" data-q placeholder="모델명 일부 (예: 0580)"></label><div class="pick" data-list></div><label class="field"><span>보여 줄 판매처 · 그룹</span><select data-gsel></select></label></div><div data-detail style="display:flex;flex-direction:column;gap:14px"></div><div class="section" data-spread></div>';
+  const qEl=el.querySelector('[data-q]'),listEl=el.querySelector('[data-list]'),det=el.querySelector('[data-detail]'),spr=el.querySelector('[data-spread]'),gsel=el.querySelector('[data-gsel]');
   const krw=(e,d)=>{if(!isNum(e))return null;const r=A.fxAt(d,e.cur||'KRW');return r?e.v*r:null};
   function refresh(){
     const d=today();
     if(A.isEmpty()){listEl.innerHTML='';det.innerHTML='<div class="empty"><b>단가 데이터가 없습니다.</b></div>';spr.innerHTML='';return}
     if(!A.ITEM.get(sel))sel=null;
+    keepVal(gsel,A.colOptions());const gv=gsel.value;
     const q=qEl.value.trim(),list=A.DB.items.filter(it=>A.matchItem(it,q,'')).slice(0,q?12:8);
     listEl.innerHTML=list.map(it=>'<button type="button" class="pickbtn'+(it.id===sel?' on':'')+'" data-pick="'+esc(it.id)+'"><b class="num">'+esc(A.itemName(it))+'</b><span>'+esc(A.itemLabel(it))+'</span></button>').join('')||'<p class="hint">검색 결과가 없습니다.</p>';
     const it=A.ITEM.get(sel);
     if(!it)det.innerHTML='<div class="empty"><b>비교할 품목을 골라 주세요.</b>위 목록에서 품목을 누르면 거래처별 단가와 마진을 비교합니다.</div>';
     else{
       const buys=A.DB.columns.filter(c=>c.group==='buy').map(c=>{const e=A.entryAt(it.id,c.key,d);return isNum(e)?{c,e,k:krw(e,d)}:null}).filter(Boolean);
-      const sells=A.DB.columns.filter(c=>c.group!=='buy').map(c=>{const e=A.entryAt(it.id,c.key,d);return isNum(e)?{c,e,k:krw(e,d),r:A.marginOf(it,c,d,A.basis())}:null}).filter(Boolean).sort((a,b)=>(b.k||0)-(a.k||0));
+      const sells=A.DB.columns.filter(c=>c.group!=='buy'&&A.colMatch(gv,c.key)).map(c=>{const e=A.entryAt(it.id,c.key,d);return isNum(e)?{c,e,k:krw(e,d),r:A.marginOf(it,c,d,A.basis())}:null}).filter(Boolean).sort((a,b)=>(b.k||0)-(a.k||0));
       const ks=sells.map(x=>x.k).filter(v=>v!=null),mn=ks.length?Math.min(...ks):null,mx=ks.length?Math.max(...ks):null,avg=ks.length?ks.reduce((a,b)=>a+b,0)/ks.length:null;
       const bk=buys.map(x=>x.k).filter(v=>v!=null),bmin=bk.length?Math.min(...bk):null;
       const lm=A.lowMargin();
@@ -82,13 +88,13 @@ A.mountCompare=function(el){
       det.innerHTML=h;
     }
     // spread ranking
-    const sellCols=A.DB.columns.filter(c=>c.group!=='buy'),rows=[];
+    const sellCols=A.DB.columns.filter(c=>c.group!=='buy'&&A.colMatch(gv,c.key)),rows=[];
     for(const x of A.DB.items){const vs=[];for(const c of sellCols){const e=A.entryAt(x.id,c.key,d);const k=krw(e,d);if(k!=null)vs.push({c,k})}
       if(vs.length>=2){vs.sort((a,b)=>a.k-b.k);const lo=vs[0],hi=vs[vs.length-1];if(hi.k>lo.k)rows.push({it:x,n:vs.length,lo,hi,sp:hi.k/lo.k-1})}}
     rows.sort((a,b)=>b.sp-a.sp);
     spr.innerHTML='<h2>거래처 간 단가 편차가 큰 품목</h2><p class="hint">같은 모델인데 거래처마다 단가가 얼마나 다른지 보여 줍니다. 누르면 위에서 비교합니다.</p>'+(rows.length?'<div class="tbl-wrap"><table class="list"><thead><tr><th>모델</th><th class="r">판매처</th><th>최저</th><th>최고</th><th class="r">편차</th></tr></thead><tbody>'+rows.slice(0,10).map(r=>'<tr class="click" data-sp="'+esc(r.it.id)+'"><td class="num">'+esc(A.itemName(r.it))+'</td><td class="r num">'+r.n+'</td><td>'+esc(r.lo.c.name)+' <span class="num">'+esc(fmtN(Math.round(r.lo.k)))+'</span></td><td>'+esc(r.hi.c.name)+' <span class="num">'+esc(fmtN(Math.round(r.hi.k)))+'</span></td><td class="r num up">'+(r.sp*100).toFixed(1)+'%</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">판매처가 둘 이상인 품목이 없습니다.</p>');
   }
-  el.addEventListener('input',ev=>{if(ev.target.matches('[data-q]'))refresh()});
+  el.addEventListener('input',ev=>{if(ev.target.matches('[data-q],[data-gsel]'))refresh()});
   el.addEventListener('click',ev=>{const b=ev.target.closest('[data-pick],[data-sp]');if(!b)return;ev.stopPropagation();sel=b.dataset.pick||b.dataset.sp;A.LS.set('danga.cmp',sel);refresh();if(b.dataset.sp)det.scrollIntoView({block:'start',behavior:'smooth'})});
   refresh();return{refresh};
 };
@@ -96,17 +102,17 @@ A.mountCompare=function(el){
 /* ---------- 원가 변동 시뮬레이션 ---------- */
 A.mountSim=function(el){
   el.innerHTML='<div class="section"><h2>원가 변동 시뮬레이션</h2><p class="hint">저장하지 않고 미리 계산합니다. 매입 원가나 환율, 판매가가 바뀌면 마진이 어떻게 되는지 확인하세요. 원가는 설정한 매입처 우선순위를 따릅니다.</p>'+
-    '<div class="filters"><label class="field"><span>매입 원가 변동 (%)</span><input type="number" step="0.1" name="cp" value="5"></label><label class="field"><span>외화 환율 변동 (%)</span><input type="number" step="0.1" name="fp" value="0"></label><label class="field"><span>판매가 변동 (%)</span><input type="number" step="0.1" name="sp" value="0"></label><label class="field"><span>대구분</span><select name="cat"></select></label><label class="field"><span>기준일</span><input type="date" name="d"></label><label class="field"><span>원가 기준</span><select name="basis"><option value="hana">하나테크 우선</option><option value="dukwoo">덕우 우선</option></select></label></div><div class="stats" data-stats></div></div><div class="section" data-out></div>';
+    '<div class="filters"><label class="field"><span>매입 원가 변동 (%)</span><input type="number" step="0.1" name="cp" value="5"></label><label class="field"><span>외화 환율 변동 (%)</span><input type="number" step="0.1" name="fp" value="0"></label><label class="field"><span>판매가 변동 (%)</span><input type="number" step="0.1" name="sp" value="0"></label><label class="field"><span>대구분</span><select name="cat"></select></label><label class="field"><span>거래처 · 그룹</span><select name="col"></select></label><label class="field"><span>기준일</span><input type="date" name="d"></label><label class="field"><span>원가 기준</span><select name="basis"><option value="hana">하나테크 우선</option><option value="dukwoo">덕우 우선</option></select></label></div><div class="stats" data-stats></div></div><div class="section" data-out></div>';
   const g=n=>el.querySelector('[name="'+n+'"]');
   function refresh(){
-    keepVal(g('cat'),catOpts());if(!g('d').value)g('d').value=today();g('basis').value=A.basis();
-    const d=g('d').value,cp=num(g('cp')),fp=num(g('fp')),sp=num(g('sp')),cat=g('cat').value,basis=g('basis').value,lm=A.lowMargin();
+    keepVal(g('cat'),catOpts());keepVal(g('col'),A.colOptions());if(!g('d').value)g('d').value=today();g('basis').value=A.basis();
+    const d=g('d').value,cp=num(g('cp')),fp=num(g('fp')),sp=num(g('sp')),cat=g('cat').value,colF=g('col').value,basis=g('basis').value,lm=A.lowMargin();
     const out=g('d').closest('.section').nextElementSibling;
     if(A.isEmpty()){el.querySelector('[data-stats]').innerHTML='';out.innerHTML='<div class="empty"><b>단가 데이터가 없습니다.</b></div>';return}
     const rows=[];
     for(const it of A.DB.items){if(cat&&it.cat1!==cat)continue;const cost=A.costAt(it,d,basis);if(!cost||cost.needFx)continue;
       const fc=(cost.e.cur||'KRW')!=='KRW',costN=cost.krw*(1+cp/100)*(fc?1+fp/100:1);
-      for(const c of A.DB.columns){if(c.group==='buy')continue;const s=A.entryAt(it.id,c.key,d);if(!isNum(s))continue;const sr=A.fxAt(d,s.cur||'KRW');if(!sr)continue;
+      for(const c of A.DB.columns){if(c.group==='buy'||!A.colMatch(colF,c.key))continue;const s=A.entryAt(it.id,c.key,d);if(!isNum(s))continue;const sr=A.fxAt(d,s.cur||'KRW');if(!sr)continue;
         const sk=s.v*sr,fs=(s.cur||'KRW')!=='KRW',skN=sk*(1+sp/100)*(fs?1+fp/100:1);
         const m0=sk-cost.krw,m1=skN-costN,p0=sk?m0/sk*100:0,p1=skN?m1/skN*100:0;rows.push({it,c,m0,m1,p0,p1})}}
     if(!rows.length){el.querySelector('[data-stats]').innerHTML='';out.innerHTML='<div class="empty"><b>계산할 칸이 없습니다.</b>원가와 판매가가 모두 있는 품목이 필요합니다. 외화 단가는 환율을 먼저 입력하세요.</div>';return}
@@ -135,7 +141,7 @@ A.pctDialog=function(opts){
   const chk=c=>'<label class="check"><input type="checkbox" data-pc="'+esc(c.key)+'"> '+esc(c.name)+'</label>';
   const curs=['KRW',...[...A.usedCurs()]];
   A.openModal('<form class="pctform" autocomplete="off"><h2>비율로 일괄 인상 · 인하</h2><p class="hint">고른 거래처의 단가를 같은 비율로 바꿉니다. 반영 전에 바뀌는 칸을 모두 보여 드립니다.</p>'+
-    '<div class="section" style="padding:10px"><b>1. 대상</b><div class="row"><button type="button" class="btn small" data-sel="sell">판매처 전체</button><button type="button" class="btn small" data-sel="buy">매입처 전체</button><button type="button" class="btn small" data-sel="none">해제</button></div>'+
+    '<div class="section" style="padding:10px"><b>1. 대상</b><div class="row"><button type="button" class="btn small" data-sel="sell">판매처 전체</button><button type="button" class="btn small" data-sel="buy">매입처 전체</button><button type="button" class="btn small" data-sel="none">해제</button>'+A.groupButtons()+'</div>'+
     (sell.length?'<div class="hint">판매처</div><div class="chkgrid">'+sell.map(chk).join('')+'</div>':'')+(buy.length?'<div class="hint">매입처</div><div class="chkgrid">'+buy.map(chk).join('')+'</div>':'')+
     '<div class="form"><label class="field"><span>대구분</span><select name="cat">'+catOpts()+'</select></label><label class="field"><span>통화</span><select name="curf"><option value="">전체</option>'+curs.map(c=>'<option value="'+c+'">'+esc(A.curLabel(c))+'</option>').join('')+'</select></label></div></div>'+
     '<div class="section" style="padding:10px"><b>2. 변경률</b><div class="form"><label class="field"><span>변경률 (%) · 인하는 마이너스</span><input type="number" step="0.1" name="pct" placeholder="예: 3 또는 -5"></label><label class="field"><span>원화 반올림</span><select name="unit"><option value="1">1원 단위</option><option value="10">10원 단위</option><option value="100">100원 단위</option><option value="0.01">소수 둘째 자리</option></select></label></div><p class="hint">외화 단가는 항상 소수 둘째 자리로 계산합니다.</p></div>'+
@@ -168,12 +174,18 @@ A.pctDialog=function(opts){
     compute();
     const pct=Number(f.pct.value),th=Number(A.settings.warnPct);
     if(!list.length){box.innerHTML='<p class="hint">'+(f.querySelector('[data-pc]:checked')&&f.pct.value!==''?'바뀌는 칸이 없습니다.':'거래처를 고르고 변경률을 입력하면 바뀌는 칸이 여기에 나옵니다.')+'</p>';f.querySelector('[data-apply]').hidden=true;return}
-    box.innerHTML='<div class="section" style="padding:10px"><b>3. 미리보기</b><div class="stats"><span class="stat">바뀌는 칸<b>'+list.length+'</b></span><span class="stat">변경률<b class="'+(pct>0?'up':'down')+'">'+(pct>0?'+':'')+pct+'%</b></span></div>'+(th>0&&Math.abs(pct)>=th?'<p class="hint up">⚠ 변경률이 큰 변동 경고 기준('+th+'%) 이상입니다. 맞는지 확인하세요.</p>':'')+A.previewTable(list)+
-      '<div class="form" style="margin-top:8px"><label class="field"><span>적용일</span><input type="date" name="from" value="'+esc(keep?keep.from:(opts.date||today()))+'"></label><label class="field"><span>사유</span><select name="reason">'+REASONS.map(r=>'<option'+((keep?keep.reason:'연간 단가 협상')===r?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select></label><label class="field full"><span>비고</span><input type="text" name="note" value="'+esc(keep?keep.note:'')+'" placeholder="예: 2027년 단가 협상 결과"></label></div></div>';
+    const fromD=(f.from&&f.from.value)||opts.date||today();
+    const imp=A.impact(list.map(c=>({item:c.it.id,col:c.col.key,v:c.next.v,t:null,cur:c.next.cur,from:fromD})),fromD);
+    const impStat=imp.neg1!==imp.neg0?'<span class="stat">역마진<b class="'+(imp.neg1>imp.neg0?'up':'')+'">'+imp.neg0+' → '+imp.neg1+'</b></span>':'';
+    const impNote=imp.newNeg.length?'<p class="hint up">⚠ 새로 역마진이 되는 칸: '+esc(imp.newNeg.slice(0,5).map(x=>A.itemName(x.it)+'·'+x.c.name).join(', '))+(imp.newNeg.length>5?' 외 '+(imp.newNeg.length-5)+'칸':'')+'</p>':'';
+    const qdates=[['오늘',today()],['내일',addDays(today(),1)],['다음 달 1일',nextMonth1()],['다음 분기 1일',nextQuarter1()],['내년 1월 1일',nextYear1()]];
+    const qdHtml='<div class="row" style="margin-top:6px"><span class="hint">적용일 빠른 선택</span>'+qdates.map(q=>'<button type="button" class="btn small" data-qd="'+q[1]+'">'+esc(q[0])+'</button>').join('')+'</div>'+(fromD>today()?'<p class="hint"><b>예약</b>: 적용일이 미래라서 지금 기록해 두면 <b>'+esc(fromD)+'부터 자동으로 적용</b>됩니다. (분석 → 적용 예정 단가에서 확인·취소)</p>':'');
+    box.innerHTML='<div class="section" style="padding:10px"><b>3. 미리보기</b><div class="stats"><span class="stat">바뀌는 칸<b>'+list.length+'</b></span><span class="stat">변경률<b class="'+(pct>0?'up':'down')+'">'+(pct>0?'+':'')+pct+'%</b></span>'+impStat+'</div>'+impNote+(th>0&&Math.abs(pct)>=th?'<p class="hint up">⚠ 변경률이 큰 변동 경고 기준('+th+'%) 이상입니다. 맞는지 확인하세요.</p>':'')+A.previewTable(list)+
+      '<div class="form" style="margin-top:8px"><label class="field"><span>적용일</span><input type="date" name="from" value="'+esc(keep?keep.from:(opts.date||today()))+'"></label><label class="field"><span>사유</span><select name="reason">'+REASONS.map(r=>'<option'+((keep?keep.reason:'연간 단가 협상')===r?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select></label><label class="field full"><span>비고</span><input type="text" name="note" value="'+esc(keep?keep.note:'')+'" placeholder="예: 2027년 단가 협상 결과"></label></div>'+qdHtml+'</div>';
     f.querySelector('[data-apply]').hidden=false;
   }
   f.addEventListener('input',ev=>{if(ev.target.matches('[data-all]')){f.querySelectorAll('[data-ck]').forEach(x=>x.checked=ev.target.checked);return}if(ev.target.matches('[data-ck],[name=note],[name=reason]'))return;render()});
-  f.addEventListener('click',ev=>{const b=ev.target.closest('[data-sel]');if(!b)return;const s=b.dataset.sel;f.querySelectorAll('[data-pc]').forEach(x=>{const c=A.COL.get(x.dataset.pc);x.checked=s==='none'?false:s==='buy'?c.group==='buy':c.group!=='buy'});render()});
+  f.addEventListener('click',ev=>{const gb=ev.target.closest('[data-grp]');if(gb){A.groupKeys(gb.dataset.grp).forEach(k=>{const x=f.querySelector('[data-pc="'+k+'"]');if(x)x.checked=true});render();return}const qd=ev.target.closest('[data-qd]');if(qd&&f.from){f.from.value=qd.dataset.qd;render();return}const b=ev.target.closest('[data-sel]');if(!b)return;const s=b.dataset.sel;f.querySelectorAll('[data-pc]').forEach(x=>{const c=A.COL.get(x.dataset.pc);x.checked=s==='none'?false:s==='buy'?c.group==='buy':c.group!=='buy'});render()});
   render();
 };
 
@@ -190,7 +202,7 @@ A.customerSheetDialog=function(opts){
   const d0=opts.date||today(),sells=A.DB.columns.filter(c=>c.group!=='buy');
   if(!sells.length){A.toast('판매처가 없습니다.');return}
   A.openModal('<form class="csform" autocomplete="off"><h2>거래처별 단가표 만들기</h2><p class="hint">거래처에 보낼 단가표입니다. 매입가와 마진 같은 내부 정보는 들어가지 않습니다.</p>'+
-    '<div class="section" style="padding:10px"><b>1. 거래처 (여러 곳 선택 가능)</b><div class="row"><button type="button" class="btn small" data-sel="all">전체</button><button type="button" class="btn small" data-sel="none">해제</button></div><div class="chkgrid" data-cols></div></div>'+
+    '<div class="section" style="padding:10px"><b>1. 거래처 (여러 곳 선택 가능)</b><div class="row"><button type="button" class="btn small" data-sel="all">전체</button><button type="button" class="btn small" data-sel="none">해제</button>'+A.groupButtons()+'</div><div class="chkgrid" data-cols></div></div>'+
     '<div class="section" style="padding:10px"><b>2. 내용</b><div class="form"><label class="field"><span>기준일</span><input type="date" name="d" value="'+esc(d0)+'"></label><label class="field"><span>포함할 품목</span><select name="scope"><option value="">단가가 있는 전체 품목</option><option value="30">최근 30일 변경분만</option><option value="90">최근 90일 변경분만</option><option value="365">최근 1년 변경분만</option></select></label><label class="field"><span>외화 단가 표시</span><select name="krw"><option value="">원래 통화</option><option value="1"'+(A.view.krw?' selected':'')+'>원화로 환산</option></select></label></div><div class="row"><label class="check"><input type="checkbox" name="showFrom" checked> 적용일 열</label><label class="check"><input type="checkbox" name="showPrev"> 변경 전 단가 열</label></div></div>'+
     '<div class="section" style="padding:10px"><b>3. 머리글</b><div class="form"><label class="field"><span>회사명</span><input type="text" name="company" value="'+esc(A.settings.company||'')+'"></label><label class="field"><span>안내 문구</span><input type="text" name="note" value="'+esc(A.settings.sheetNote||'')+'" placeholder="예: 부가세 별도"></label></div></div>'+
     '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button><button class="btn" type="button" data-go="xlsx">엑셀로 저장</button><button class="btn primary" type="button" data-go="pdf">PDF로 저장</button></div></form>',()=>false,'wide');
@@ -199,7 +211,9 @@ A.customerSheetDialog=function(opts){
   function drawCols(){const d=f.d.value||d0,keep=new Set([...colsEl.querySelectorAll('input:checked')].map(x=>x.value));
     colsEl.innerHTML=sells.map(c=>{const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,c.key,d))).length;return '<label class="check"><input type="checkbox" value="'+esc(c.key)+'"'+((keep.has(c.key)||(!keep.size&&preSel.has(c.key)))?' checked':'')+'> '+esc(c.name)+' <span class="hint">('+n+')</span></label>'}).join('')}
   drawCols();f.d.addEventListener('change',drawCols);
+  if(opts.scope)f.scope.value=String(opts.scope);if(opts.krw!=null)f.krw.value=opts.krw?'1':'';if(opts.company!=null)f.company.value=opts.company;if(opts.note!=null)f.note.value=opts.note;
   f.addEventListener('click',ev=>{
+    const gb=ev.target.closest('[data-grp]');if(gb){A.groupKeys(gb.dataset.grp).forEach(k=>{const x=colsEl.querySelector('input[value="'+k+'"]');if(x)x.checked=true});return}
     const s=ev.target.closest('[data-sel]');if(s){colsEl.querySelectorAll('input').forEach(x=>x.checked=s.dataset.sel==='all');return}
     const go=ev.target.closest('[data-go]');if(!go)return;
     const err=m=>{f.querySelector('[data-err]').textContent=m};err('');
@@ -208,6 +222,7 @@ A.customerSheetDialog=function(opts){
     A.settings.company=company;A.settings.sheetNote=note;A.saveSettings();
     const sheets=keys.map(k=>buildSheet(k,d,scope)).filter(s=>s.rows.length);
     if(!sheets.length){err('조건에 맞는 품목이 없습니다. 기준일이나 포함할 품목을 바꿔 보세요.');return}
+    A.logSheet({keys,names:sheets.map(s=>s.col.name),date:d,scope,krw,company,note,count:sheets.reduce((n,s)=>n+s.rows.length,0),fmt:go.dataset.go});
     const scopeTxt=scope?' · 최근 '+scope+'일 변경분':'';
     if(go.dataset.go==='xlsx'){
       const used=new Set();
@@ -231,7 +246,7 @@ A.customerSheetDialog=function(opts){
 A.exportDialog=function(opts){
   if(noData())return;const d0=(opts&&opts.date)||today();
   A.openModal('<form autocomplete="off"><h2>내보내기</h2><label class="field"><span>기준일</span><input type="date" name="d" value="'+esc(d0)+'"></label><label class="check"><input type="checkbox" name="krw"'+(A.view.krw?' checked':'')+'> 외화 단가를 원화로 환산해서 내보내기</label>'+
-    '<div class="grid-btns"><button type="button" class="btn" data-x="px">단가표 엑셀</button><button type="button" class="btn" data-x="pp">단가표 PDF</button><button type="button" class="btn" data-x="mx">마진표 엑셀</button><button type="button" class="btn" data-x="mp">마진표 PDF</button></div><p class="hint">변경 이력과 두 날짜 비교는 각 화면에서 내보냅니다. 거래처에 보낼 단가표는 "거래처별 단가표"를 이용하세요.</p><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button></div></form>',()=>false);
+    '<div class="grid-btns"><button type="button" class="btn" data-x="px">단가표 엑셀</button><button type="button" class="btn" data-x="pp">단가표 PDF</button>'+(A.readOnly?'':'<button type="button" class="btn" data-x="mx">마진표 엑셀</button><button type="button" class="btn" data-x="mp">마진표 PDF</button>')+'</div><p class="hint">변경 이력과 두 날짜 비교는 각 화면에서 내보냅니다. 거래처에 보낼 단가표는 "거래처별 단가표"를 이용하세요.</p><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button></div></form>',()=>false);
   const f=document.querySelector('#modal form');
   f.addEventListener('click',ev=>{const b=ev.target.closest('[data-x]');if(!b)return;const d=f.d.value||d0;if(f.krw.checked!==A.view.krw)A.setKrw(f.krw.checked);
     const x=b.dataset.x;if(x==='px')A.exportXlsx(d).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message));else if(x==='pp')A.printPriceTable(d);else if(x==='mx')A.exportMarginXlsx(d,A.basis()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message));else A.printMargin(d,A.basis())});
@@ -256,9 +271,11 @@ A.runTool=function(id,ctx){
   if(id==='export'){A.exportDialog({date:d});return}
 };
 A.mountTools=function(el,ctx){
-  el.innerHTML='<div class="tiles">'+A.TOOLS.map(t=>'<button type="button" class="tile" data-tool="'+t.id+'"><span class="tile-ico">'+A.icon(t.icon,22)+'</span><span class="tile-t">'+esc(t.title)+'</span><span class="tile-d">'+esc(t.desc)+'</span></button>').join('')+'</div>';
+  const tools=A.readOnly?A.TOOLS.filter(x=>['find','sheet','export'].includes(x.id)):A.TOOLS;
+  el.innerHTML='<div class="tiles">'+tools.map(x=>'<button type="button" class="tile" data-tool="'+x.id+'"><span class="tile-ico">'+A.icon(x.icon,22)+'</span><span class="tile-t">'+esc(x.title)+'</span><span class="tile-d">'+esc(x.desc)+'</span></button>').join('')+'</div>'+(A.readOnly?'':'<div data-slog style="margin-top:14px"></div>');
+  const slog=A.readOnly?null:A.mountSheetLog(el.querySelector('[data-slog]'));
   el.addEventListener('click',ev=>{const b=ev.target.closest('[data-tool]');if(b)A.runTool(b.dataset.tool,ctx)});
-  return{refresh(){}};
+  return{refresh(){if(slog)slog.refresh()}};
 };
 
 /* ---------- home ---------- */
@@ -345,9 +362,125 @@ A.batchDialog=function(key){
       A.closeModal();A.toast(n?n+'건의 적용일을 '+nd+'(으)로 바꿨습니다.':'바뀐 기록이 없습니다.',n?{action:{label:'되돌리기',fn:()=>A.undo()}}:undefined);return}
     if(b.dataset.do==='del'){
       if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 '+ids.length+'건 삭제';setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.innerHTML='선택한 <span data-n>'+picked().length+'</span>건 삭제'}},5000);return}
-      A.batch('일괄 삭제 ('+ids.length+'건)',()=>{for(const id of ids)A.deleteEntry(id)});
+      A.batch('일괄 삭제 ('+ids.length+'건)',()=>{A.logChange('일괄 삭제: '+g.label+' · '+ids.length+'건');for(const id of ids)A.deleteEntry(id,true)});
       A.closeModal();A.toast(ids.length+'건을 삭제했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}
   });
+};
+
+/* ---------- 거래처 그룹 ---------- */
+A.mountGroups=function(el){
+  let sugs=[];
+  function groupDialog(g,preset){
+    const cols=A.DB.columns,sel=new Set(g?A.groupKeys(g.id):(preset?preset.keys:[]));
+    A.openModal('<form autocomplete="off"><h2>'+(g?'그룹 수정':'그룹 만들기')+'</h2><label class="field"><span>그룹 이름</span><input type="text" name="nm" value="'+esc(g?g.name:(preset?preset.name:''))+'" placeholder="예: 삼성 그룹" required></label><div class="hint">소속 거래처</div><div class="chkgrid">'+
+      cols.map(c=>'<label class="check"><input type="checkbox" value="'+esc(c.key)+'"'+(sel.has(c.key)?' checked':'')+'> '+esc(c.name)+(c.group==='buy'?' <span class="hint">(매입)</span>':'')+'</label>').join('')+'</div>'+
+      (g?'<div class="section" style="padding:10px"><b>그룹 삭제</b><p class="hint">그룹만 지워지고 거래처와 단가는 그대로입니다.</p><div class="row"><button type="button" class="btn danger" data-gdel>이 그룹 삭제</button></div></div>':'')+
+      '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">저장</button></div></form>',f=>{
+      const err=m=>{f.querySelector('[data-err]').textContent=m;return false};
+      const nm=A.norm(f.nm.value),keys=[...f.querySelectorAll('.chkgrid input:checked')].map(x=>x.value);
+      if(!nm)return err('그룹 이름을 입력하세요.');if(!keys.length)return err('거래처를 하나 이상 선택하세요.');
+      if(A.DB.groups.some(x=>x.name===nm&&(!g||x.id!==g.id)))return err('같은 이름의 그룹이 있습니다.');
+      A.saveGroup({id:g&&g.id,name:nm,keys});A.toast('그룹을 저장했습니다: '+nm+' ('+keys.length+'곳)');
+    },'wide');
+    const f=document.querySelector('#modal form'),d=f.querySelector('[data-gdel]');
+    if(d)d.addEventListener('click',()=>{if(!d.dataset.armed){d.dataset.armed='1';d.textContent='한 번 더 누르면 삭제';return}A.removeGroup(g.id);A.closeModal();A.toast('그룹을 삭제했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})});
+  }
+  function refresh(){
+    const gs=A.DB.groups.slice().sort((a,b)=>a.name<b.name?-1:1);sugs=A.suggestGroups();
+    el.innerHTML='<div class="section"><div class="row" style="justify-content:space-between"><h2>거래처 그룹</h2><button class="btn small" type="button" data-g="new">+ 그룹 만들기</button></div><p class="hint">삼성 광주·태국·폴란드처럼 관련 거래처를 묶어 두면, 비율 인상·거래처별 단가표·이력 검색·시뮬레이션에서 그룹 이름만 골라 한 번에 선택할 수 있습니다. 단가 데이터는 거래처별로 그대로 유지됩니다.</p>'+
+      (sugs.length?'<div class="status-line">이름이 비슷한 거래처를 찾았습니다: '+sugs.map((s,i)=>'<button type="button" class="btn small" data-g="sug" data-i="'+i+'">'+esc(s.name)+' ('+s.keys.length+'곳) 만들기</button>').join(' ')+'</div>':'')+
+      (gs.length?'<div class="tbl-wrap"><table class="list"><thead><tr><th>그룹</th><th>소속 거래처</th><th></th></tr></thead><tbody>'+gs.map(g=>'<tr><td><b>'+esc(g.name)+'</b></td><td>'+esc(A.groupKeys(g.id).map(k=>A.COL.get(k).name).join(', ')||'(없음)')+'</td><td class="r"><button class="btn small" type="button" data-g="edit" data-id="'+esc(g.id)+'">수정 · 삭제</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty"><b>아직 그룹이 없습니다.</b>"그룹 만들기"를 눌러 시작하세요.</div>')+'</div>';
+  }
+  el.addEventListener('click',ev=>{const b=ev.target.closest('[data-g]');if(!b)return;
+    if(b.dataset.g==='new')groupDialog(null);else if(b.dataset.g==='sug')groupDialog(null,sugs[Number(b.dataset.i)]);else if(b.dataset.g==='edit')groupDialog(A.DB.groups.find(x=>x.id===b.dataset.id))});
+  refresh();return{refresh};
+};
+
+/* ---------- 단가표 발행 기록 ---------- */
+A.mountSheetLog=function(el){
+  function refresh(){
+    const L=A.DB.sheetLog.slice().sort((a,b)=>a.at<b.at?1:-1).slice(0,30);
+    el.innerHTML='<div class="section"><h2>단가표 발행 기록</h2><p class="hint">거래처별 단가표를 만든 기록입니다. "다시 만들기"를 누르면 그때의 기준일과 조건 그대로 열립니다. 단가 이력이 남아 있어서 당시와 같은 단가표를 다시 만들 수 있습니다.</p>'+
+      (L.length?'<div class="tbl-wrap"><table class="list"><thead><tr><th>발행 시각</th><th>거래처</th><th>기준일</th><th>범위</th><th>형식</th><th></th></tr></thead><tbody>'+L.map(r=>{const n=r.names||[];return '<tr><td class="num">'+esc(shortDT(r.at))+(r.by?'<br><span class="hint">'+esc(r.by)+'</span>':'')+'</td><td>'+esc(n.slice(0,3).join(', ')+(n.length>3?' 외 '+(n.length-3)+'곳':''))+'</td><td class="num">'+esc(r.date)+'</td><td>'+(r.scope?'최근 '+r.scope+'일 변경분':'전체')+'</td><td>'+(r.fmt==='xlsx'?'엑셀':'PDF')+'</td><td class="r"><button class="btn small" type="button" data-resheet="'+esc(r.id)+'">다시 만들기</button></td></tr>'}).join('')+'</tbody></table></div>':'<p class="hint">아직 발행 기록이 없습니다. 거래처별 단가표를 만들면 여기에 남습니다.</p>')+'</div>';
+  }
+  el.addEventListener('click',ev=>{const b=ev.target.closest('[data-resheet]');if(!b)return;const r=A.DB.sheetLog.find(x=>x.id===b.dataset.resheet);if(r)A.customerSheetDialog({date:r.date,keys:r.keys,scope:r.scope,krw:r.krw,company:r.company,note:r.note})});
+  refresh();return{refresh};
+};
+
+/* ---------- 추이 비교: 여러 거래처의 단가 변화를 한 그래프에 ---------- */
+const PAL=['#1f5c87','#d97706','#15803d','#7e22ce','#be123c','#0891b2','#a16207','#64748b'];
+A.mountTrend=function(el){
+  let sel=A.LS.get('danga.trend'),picked=null,indexed=false;
+  el.innerHTML='<div class="section"><label class="field"><span>품목 찾기</span><input type="search" data-q placeholder="모델명 일부 (예: 0580)"></label><div class="pick" data-list></div></div><div class="section" data-body></div>';
+  const qEl=el.querySelector('[data-q]'),listEl=el.querySelector('[data-list]'),body=el.querySelector('[data-body]');
+  const toKrw=e=>{if(!isNum(e))return null;const c=e.cur||'KRW';if(c==='KRW')return e.v;const r=A.fxAt(e.from,c)||A.fxAt(today(),c);return r?e.v*r:null};
+  const series=(it,col)=>A.hist(it.id,col.key).map(e=>({x:e.from,y:toKrw(e),e})).filter(p=>p.y!=null);
+  function chart(shown,idx){
+    const W=680,H=280,L=62,R=16,T=14,B=30,t0=Math.min(...shown.map(s=>Date.parse(s.pts[0].x))),tn=Math.max(Date.parse(today()),...shown.map(s=>Date.parse(s.pts[s.pts.length-1].x))),x1=tn===t0?t0+864e5:tn;
+    const val=(s,p)=>idx?p.y/s.pts[0].y*100:p.y,ys=shown.flatMap(s=>s.pts.map(p=>val(s,p)));
+    let lo=Math.min(...ys),hi=Math.max(...ys);if(lo===hi){lo*=0.95;hi=hi*1.05||1}const pd=(hi-lo)*0.12;lo-=pd;hi+=pd;
+    const X=v=>L+(v-t0)/(x1-t0)*(W-L-R),Y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+    const tx=(x,y,s,a)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+(a||'start')+'" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono,monospace">'+esc(s)+'</text>';
+    let g='';for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4,y=Y(v);g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)"/>'+tx(L-6,(y+3.5).toFixed(1),idx?v.toFixed(0):fmtN(Math.round(v)),'end')}
+    for(let k=0;k<=3;k++){const v=t0+(x1-t0)*k/3;g+=tx(X(v).toFixed(1),H-8,isoDate(new Date(v)),k===0?'start':k===3?'end':'middle')}
+    const lines=shown.map((s,i)=>{const col=PAL[i%8],dash=i>=8?' stroke-dasharray="5 3"':'';let d='';s.pts.forEach((p,k)=>{const x=X(Date.parse(p.x)),y=Y(val(s,p));d+=(k?'H'+x.toFixed(1)+'V'+y.toFixed(1):'M'+x.toFixed(1)+' '+y.toFixed(1))});d+='H'+X(x1).toFixed(1);
+      return '<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2"'+dash+'/>'+s.pts.map(p=>'<circle cx="'+X(Date.parse(p.x)).toFixed(1)+'" cy="'+Y(val(s,p)).toFixed(1)+'" r="3" fill="'+col+'"><title>'+esc(s.c.name+' '+p.x+' '+(idx?val(s,p).toFixed(1):fmtN(Math.round(p.y))))+'</title></circle>').join('')}).join('');
+    return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="단가 추이 비교">'+g+lines+'</svg>';
+  }
+  function refresh(){
+    if(A.isEmpty()){listEl.innerHTML='';body.innerHTML='<div class="empty"><b>단가 데이터가 없습니다.</b></div>';return}
+    if(!A.ITEM.get(sel))sel=null;
+    const q=qEl.value.trim(),list=A.DB.items.filter(it=>A.matchItem(it,q,'')).slice(0,q?12:8);
+    listEl.innerHTML=list.map(it=>'<button type="button" class="pickbtn'+(it.id===sel?' on':'')+'" data-tpick="'+esc(it.id)+'"><b class="num">'+esc(A.itemName(it))+'</b><span>'+esc(A.itemLabel(it))+'</span></button>').join('')||'<p class="hint">검색 결과가 없습니다.</p>';
+    const it=A.ITEM.get(sel);
+    if(!it){body.innerHTML='<div class="empty"><b>품목을 골라 주세요.</b>위 목록에서 품목을 누르면 거래처별 단가 변화를 한 그래프로 비교합니다.</div>';return}
+    const all=A.DB.columns.filter(c=>c.group!=='buy').map(c=>({c,pts:series(it,c)})).filter(x=>x.pts.length);
+    if(!all.length){body.innerHTML='<div class="empty"><b>이 품목의 판매 단가가 없습니다.</b></div>';return}
+    let keys=picked?new Set([...picked].filter(k=>all.some(x=>x.c.key===k))):null;
+    if(!keys||!keys.size){const ch=all.filter(x=>x.pts.length>1).map(x=>x.c.key);keys=new Set((ch.length?ch:all.map(x=>x.c.key)).slice(0,8))}
+    const shown=all.filter(x=>keys.has(x.c.key));
+    let h='<div><div class="hint">'+esc(A.itemLabel(it))+'</div><h2 class="num" style="font-size:20px">'+esc(A.itemName(it))+'</h2></div>'+
+      '<div class="row"><button type="button" class="btn small" data-tsel="all">전체</button><button type="button" class="btn small" data-tsel="chg">변경 있는 곳만</button><button type="button" class="btn small" data-tsel="none">해제</button>'+A.groupButtons()+'<label class="check" style="margin-left:auto"><input type="checkbox" data-idx'+(indexed?' checked':'')+'> 시작을 100으로 맞춰 상승률 비교</label></div>'+
+      '<div class="chkgrid">'+all.map(x=>{const i=shown.indexOf(x);return '<label class="check"><input type="checkbox" data-tc value="'+esc(x.c.key)+'"'+(i>=0?' checked':'')+'>'+(i>=0?'<i class="dotc" style="background:'+PAL[i%8]+'"></i>':'')+esc(x.c.name)+'</label>'}).join('')+'</div>';
+    if(!shown.length)h+='<p class="hint">거래처를 하나 이상 선택하세요.</p>';
+    else{
+      if(shown.length>8)h+='<p class="hint">선이 8개를 넘으면 구분하기 어렵습니다. 그룹이나 변경 있는 곳만 골라 보세요.</p>';
+      h+='<div class="chart">'+chart(shown,indexed)+'</div><div class="tbl-wrap"><table class="list"><thead><tr><th>거래처</th><th class="r">처음</th><th class="r">현재</th><th class="r">변동</th><th class="r">변경 횟수</th></tr></thead><tbody>'+
+        shown.map((s,i)=>{const f=s.pts[0],l=s.pts[s.pts.length-1],now=A.entryAt(it.id,s.c.key,today()),pc=f.y?(l.y/f.y-1)*100:null;
+          return '<tr class="click" data-i="'+esc(it.id)+'" data-c="'+esc(s.c.key)+'"><td><i class="dotc" style="background:'+PAL[i%8]+'"></i>'+esc(s.c.name)+'</td><td class="r num">'+esc(A.eText(f.e))+' <span class="hint">'+esc(f.x)+'</span></td><td class="r num"><b>'+esc(A.eText(now||l.e))+'</b></td><td class="r num '+(pc>0?'up':pc<0?'down':'')+'">'+(pc==null?'':(pc>0?'+':'')+pc.toFixed(1)+'%')+'</td><td class="r num">'+(s.pts.filter(p=>!p.e.base).length)+'</td></tr>'}).join('')+'</tbody></table></div>';
+    }
+    body.innerHTML=h;
+  }
+  el.addEventListener('input',ev=>{if(ev.target.matches('[data-q]'))refresh()});
+  el.addEventListener('change',ev=>{
+    if(ev.target.matches('[data-idx]')){indexed=ev.target.checked;refresh();return}
+    if(ev.target.matches('[data-tc]')){picked=new Set([...el.querySelectorAll('[data-tc]:checked')].map(x=>x.value));if(!picked.size)picked=new Set(['__none__']);refresh()}});
+  el.addEventListener('click',ev=>{
+    const pb=ev.target.closest('[data-tpick]');if(pb){ev.stopPropagation();sel=pb.dataset.tpick;A.LS.set('danga.trend',sel);picked=null;refresh();return}
+    const gb=ev.target.closest('[data-grp]');if(gb){picked=new Set([...el.querySelectorAll('[data-tc]:checked')].map(x=>x.value));A.groupKeys(gb.dataset.grp).forEach(k=>picked.add(k));refresh();return}
+    const ts=ev.target.closest('[data-tsel]');if(ts){const it=A.ITEM.get(sel);if(!it)return;const all=A.DB.columns.filter(c=>c.group!=='buy').map(c=>({c,pts:series(it,c)})).filter(x=>x.pts.length);
+      picked=ts.dataset.tsel==='all'?new Set(all.map(x=>x.c.key)):ts.dataset.tsel==='chg'?new Set(all.filter(x=>x.pts.length>1).map(x=>x.c.key)):new Set(['__none__']);refresh()}});
+  refresh();return{refresh};
+};
+
+/* ---------- 수정 · 삭제 내역 ---------- */
+A.mountAudit=function(el){
+  el.innerHTML='<div class="filters"><label class="field"><span>내용 검색</span><input type="search" name="q" placeholder="모델, 거래처, 이름"></label><label class="field"><span>구분</span><select name="k"><option value="">전체</option><option>기록 수정</option><option>기록 삭제</option><option>품목·거래처</option><option>그룹</option><option>단가표 발행</option></select></label></div><div data-out></div>';
+  const g=n=>el.querySelector('[name="'+n+'"]');
+  function rows(){
+    const out=[];
+    for(const e of A.DB.entries)if(e.edits){const it=A.ITEM.get(e.item),c=A.COL.get(e.col);for(const x of e.edits)out.push({at:x.at,by:x.by||'',kind:'기록 수정',text:(it?A.itemName(it):'?')+' · '+(c?c.name:'?')+': '+x.text})}
+    for(const l of A.DB.log){const k=/^기록 삭제|^일괄 삭제/.test(l.text)?'기록 삭제':/^그룹/.test(l.text)?'그룹':'품목·거래처';out.push({at:l.at,by:l.by||'',kind:k,text:l.text})}
+    for(const s of A.DB.sheetLog){const n=s.names||[];out.push({at:s.at,by:s.by||'',kind:'단가표 발행',text:n.slice(0,3).join(', ')+(n.length>3?' 외 '+(n.length-3)+'곳':'')+' · 기준일 '+s.date+' · '+(s.fmt==='xlsx'?'엑셀':'PDF')})}
+    return out.sort((a,b)=>a.at<b.at?1:-1);
+  }
+  function refresh(){
+    const q=g('q').value.trim().toLowerCase(),k=g('k').value,all=rows(),list=all.filter(r=>(!k||r.kind===k)&&(!q||(r.text+' '+r.by).toLowerCase().includes(q)));
+    const out=el.querySelector('[data-out]');
+    if(!list.length){out.innerHTML='<div class="empty"><b>'+(all.length?'조건에 맞는 내역이 없습니다.':'아직 수정·삭제 내역이 없습니다.')+'</b>기록 수정, 기록 삭제, 이름 변경, 그룹 변경, 단가표 발행이 시간순으로 모입니다.</div>';return}
+    out.innerHTML='<div class="tbl-wrap section" style="padding:6px"><table class="list"><thead><tr><th>시각</th><th>입력자</th><th>구분</th><th>내용</th></tr></thead><tbody>'+list.slice(0,300).map(r=>'<tr><td class="num" style="white-space:nowrap">'+esc(shortDT(r.at))+'</td><td>'+esc(r.by)+'</td><td><span class="tag">'+esc(r.kind)+'</span></td><td>'+esc(r.text)+'</td></tr>').join('')+'</tbody></table></div>'+(list.length>300?'<p class="hint">최근 300건만 표시합니다. 검색으로 좁혀 보세요.</p>':'');
+  }
+  el.addEventListener('input',refresh);refresh();return{refresh};
 };
 
 /* ---------- undo button + keyboard shortcuts ---------- */

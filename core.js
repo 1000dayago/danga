@@ -6,7 +6,8 @@
 const A=window.Danga={};
 const APP='danga-manager',SCHEMA=2;
 const FOLDER='application/vnd.google-apps.folder';
-const SCOPE='https://www.googleapis.com/auth/drive';
+const SCOPE_RW='https://www.googleapis.com/auth/drive',SCOPE_RO='https://www.googleapis.com/auth/drive.readonly';
+const tkey=()=>'danga.token'+(window.Danga&&window.Danga.readOnly?'.sales':'');
 const REASONS=['원자재 가격 변동','연간 단가 협상','환율 변동','신규 거래','거래 중단','물량 조건 변경','입력 오류 수정','기타'];
 const KNOWN={'하나테크':'hana','덕우':'dukwoo','삼성 광주':'sam_gj','태성전기':'taesung','유남전기':'yunam','DCE':'dce','그린테크':'green','네오 글로벌':'neo','오비오':'obio','유니크 대성':'unique','세고스':'segos','경인본부':'gyeongin','삼성 태국':'sam_th','삼성 폴란드':'sam_pl','삼성 멕시코':'sam_mx','삼성 베트남':'sam_vn','히타치':'hitachi','왈튼':'walton','베스텔':'vestel','엔터캅':'entercop','텐사이':'tensai','R F L':'rfl'};
 const XLSX_SRC='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
@@ -33,16 +34,18 @@ let toastT;
 A.toast=function(msg,opt){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;if(opt&&opt.action){const b=document.createElement('button');b.type='button';b.className='toast-act';b.textContent=opt.action.label;b.addEventListener('click',()=>{t.hidden=true;opt.action.fn()});t.appendChild(b)}t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,opt&&opt.action?8000:3800)};
 
 /* ---------- state ---------- */
-const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[],fxCurs:[]});
+const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[],fxCurs:[],groups:[],sheetLog:[]});
 const validDb=d=>d&&Array.isArray(d.columns)&&Array.isArray(d.items)&&Array.isArray(d.entries);
-const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log','fxCurs'])if(!Array.isArray(d[k]))d[k]=[];return d};
-A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null,userName:'',company:'',sheetNote:'',warnPct:30,lowMargin:10,basis:'hana',viewKrw:false,favs:[]},LS.get('danga.settings')||{});
+const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log','fxCurs','groups','sheetLog'])if(!Array.isArray(d[k]))d[k]=[];return d};
+A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null,userName:'',company:'',sheetNote:'',warnPct:30,lowMargin:10,basis:'hana',viewKrw:false,favs:[],salesMode:false,sharePath:'회사 폴더/단가관리/영업용',autoShare:false,shareFolderId:null,shareFolderFor:null,lastShare:null},LS.get('danga.settings')||{});
+A.readOnly=!!A.settings.salesMode;
 A.saveSettings=()=>LS.set('danga.settings',A.settings);
-const draft=LS.get('danga.draft');
+const DKEY=A.readOnly?'danga.draft.sales':'danga.draft';
+const draft=LS.get(DKEY);
 A.DB=draft&&validDb(draft.db)?normDb(draft.db):emptyDb();
 A.dirty=draft?draft.dirty||0:0;
 A.sync=Object.assign({fileId:null,remoteModified:null,at:null,title:null,overwrite:false},draft&&draft.sync||{});
-A.persist=()=>LS.set('danga.draft',{db:A.DB,dirty:A.dirty,sync:A.sync});
+A.persist=()=>LS.set(DKEY,{db:A.DB,dirty:A.dirty,sync:A.sync});
 const listeners=[];
 A.onChange=fn=>listeners.push(fn);
 A.emit=()=>listeners.forEach(f=>{try{f()}catch(e){console.error(e)}});
@@ -107,6 +110,27 @@ A.pickCurrency=function(cb){
 };
 document.addEventListener('change',ev=>{const s=ev.target;if(!s.classList||!s.classList.contains('cursel'))return;
   if(s.value==='__more__'){const prev=s.dataset.prev||'KRW';A.pickCurrency(code=>{if(!code){s.value=prev;return}A.setCur(s,code);s.dispatchEvent(new Event('change',{bubbles:true}))})}else s.dataset.prev=s.value});
+A.groupKeys=id=>{const g=A.DB.groups.find(x=>x.id===id);return g?g.keys.filter(k=>A.COL.get(k)):[]};
+A.colMatch=(val,key)=>!val||val===key||(String(val).startsWith('g:')&&A.groupKeys(val.slice(2)).includes(key));
+A.colLabel=val=>{if(!val)return '전체';if(String(val).startsWith('g:')){const g=A.DB.groups.find(x=>x.id===val.slice(2));return g?g.name:'그룹'}const c=A.COL.get(val);return c?c.name:val};
+A.saveGroup=function(g){
+  const now=new Date().toISOString(),ex=g.id&&A.DB.groups.find(x=>x.id===g.id);
+  if(ex){const before=ex.name;Object.assign(ex,{name:g.name,keys:g.keys.slice(),upd:now});logChange('그룹 수정: '+(before!==g.name?before+' → ':'')+g.name+' ('+g.keys.length+'곳)')}
+  else{A.DB.groups.push({id:uid('g'),name:g.name,keys:g.keys.slice(),upd:now});logChange('그룹 만들기: '+g.name+' ('+g.keys.length+'곳)')}
+  commit();
+};
+A.removeGroup=id=>{const g=A.DB.groups.find(x=>x.id===id);if(!g)return;A.DB.groups=A.DB.groups.filter(x=>x.id!==id);A.DB.deleted.push(id);logChange('그룹 삭제: '+g.name);commit()};
+A.suggestGroups=()=>{const m=new Map();for(const c of A.DB.columns){if(c.group==='buy')continue;const w=c.name.split(/\s+/)[0];if(w.length<2||w===c.name)continue;if(!m.has(w))m.set(w,[]);m.get(w).push(c.key)}
+  return [...m].filter(([w,ks])=>ks.length>=2&&!A.DB.groups.some(g=>g.name===w||g.name===w+' 그룹')).map(([w,ks])=>({name:w+' 그룹',keys:ks}))};
+/* what-if: effect of changes on margin alerts, evaluated at date d */
+A.impact=function(list,d){
+  const a0=A.alerts(d),tmp=list.map((e,i)=>Object.assign({id:'tmp'+i,at:nowIso()},e));
+  A.DB.entries.push(...tmp);A.reindex();let a1;
+  try{a1=A.alerts(d)}finally{A.DB.entries=A.DB.entries.filter(x=>!String(x.id).startsWith('tmp'));A.reindex()}
+  const key=x=>x.it.id+'|'+x.c.key,was=new Set(a0.neg.map(key));
+  return{neg0:a0.neg.length,neg1:a1.neg.length,low0:a0.low.length,low1:a1.low.length,newNeg:a1.neg.filter(x=>!was.has(key(x)))};
+};
+A.logSheet=rec=>{if(A.readOnly)return;A.DB.sheetLog.push(Object.assign({id:uid('sl'),at:nowIso(),by:A.settings.userName||''},rec));if(A.DB.sheetLog.length>300)A.DB.sheetLog=A.DB.sheetLog.slice(-300);A.touch(1,'단가표 발행 기록')};
 A.fxColumns=()=>{const s=new Set(['EUR','RMB','USD']);for(const c of A.usedCurs())s.add(c);return [...s]};
 
 /* display currency (원래 통화 / 원화 환산) */
@@ -166,7 +190,7 @@ A.updateEntry=function(id,patch,opts){
   e.upd=new Date().toISOString();(e.edits=e.edits||[]).push({at:nowIso(),by:A.settings.userName||'',text:diffs.join(', ')});
   A.reindex();A.touch(1,(opts&&opts.label)||'기록 수정');return true;
 };
-A.deleteEntry=id=>{A.DB.entries=A.DB.entries.filter(x=>x.id!==id);A.DB.deleted.push(id);A.reindex();A.touch(1,'기록 삭제')};
+A.deleteEntry=(id,quiet)=>{const e=A.DB.entries.find(x=>x.id===id);A.DB.entries=A.DB.entries.filter(x=>x.id!==id);A.DB.deleted.push(id);if(e&&!quiet){const it=A.ITEM.get(e.item),c=A.COL.get(e.col);logChange('기록 삭제: '+(it?A.itemName(it):'')+' · '+(c?c.name:'')+' '+e.from+' '+A.eText(e))}A.reindex();A.touch(1,'기록 삭제')};
 A.addItem=it=>{
   it.id=uid('i');let idx=-1;
   A.DB.items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2)idx=k});
@@ -203,12 +227,13 @@ A.mergeDb=function(local,remote){
   };
   const I=mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
   const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])]};
+  return{columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
 const updStamp=()=>new Date().toISOString();
-let lastLog='';const logChange=text=>{lastLog=text;A.DB.log.push({id:uid('l'),at:nowIso(),text})};
+let lastLog='';const logChange=text=>{lastLog=text;A.DB.log.push({id:uid('l'),at:nowIso(),by:A.settings.userName||'',text})};
+A.logChange=logChange;
 const itemPath=it=>[it.cat1,it.cat2,it.model].filter(Boolean).join(' › ');
 const commit=()=>{A.reindex();A.touch(1,lastLog)};
 A.findDupItem=(cat1,cat2,model,exceptId)=>A.DB.items.find(x=>x.id!==exceptId&&x.cat1===cat1&&x.cat2===cat2&&x.model===model);
@@ -377,14 +402,14 @@ const expErr=e=>A.toast(e&&e.message?e.message:'내보내기에 실패했습니�
 A.saveBlob=(name,blob)=>{const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000)};
 A.downloadText=(name,text)=>A.saveBlob(name,new Blob([text],{type:'application/json'}));
 A.pack=()=>JSON.stringify({app:APP,schema:SCHEMA,savedAt:nowIso(),db:A.DB});
-A.unpack=text=>{let o;try{o=JSON.parse(text)}catch(e){return null}if(o&&o.app===APP&&validDb(o.db))return normDb(o.db);return null};
+A.unpack=text=>{let o;try{o=JSON.parse(text)}catch(e){return null}if(o&&o.app===APP&&validDb(o.db)){if(o.kind==='share'&&!A.readOnly)return null;return normDb(o.db)}return null};
 
 /* ---------- Google Drive ---------- */
 const D={token:null,exp:0};
 const gisReady=()=>!!(window.google&&google.accounts&&google.accounts.oauth2);
 let gisP=null;
 A.loadGis=()=>{if(gisReady())return Promise.resolve();if(!gisP)gisP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=()=>res();s.onerror=()=>{gisP=null;rej(new Error('구글 로그인 도구를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'))};document.head.appendChild(s)});return gisP};
-function cachedToken(){if(D.token&&Date.now()<D.exp-60000)return D.token;const s=LS.get('danga.token');if(s&&Date.now()<s.exp-60000){D.token=s.t;D.exp=s.exp;return D.token}return null}
+function cachedToken(){if(D.token&&Date.now()<D.exp-60000)return D.token;const s=LS.get(tkey());if(s&&Date.now()<s.exp-60000){D.token=s.t;D.exp=s.exp;return D.token}return null}
 A.hasToken=()=>!!cachedToken();
 /* must be called directly from a click so the Google popup is allowed */
 function getToken(interactive){
@@ -393,18 +418,18 @@ function getToken(interactive){
   if(!A.settings.clientId)return Promise.reject(new Error('설정에서 구글 클라이언트 ID를 먼저 입력하세요. (README의 설정 방법 참고)'));
   if(!gisReady())return A.loadGis().then(()=>Promise.reject(new Error('구글 로그인 준비가 끝났습니다. 버튼을 한 번 더 눌러 주세요.')));
   return new Promise((res,rej)=>{
-    const c=google.accounts.oauth2.initTokenClient({client_id:A.settings.clientId.trim(),scope:SCOPE,
-      callback:r=>{if(r.error){rej(new Error('구글 로그인 실패: '+(r.error_description||r.error)));return}D.token=r.access_token;D.exp=Date.now()+(Number(r.expires_in)||3600)*1000;LS.set('danga.token',{t:D.token,exp:D.exp});A.fetchUser();res(D.token)},
+    const c=google.accounts.oauth2.initTokenClient({client_id:A.settings.clientId.trim(),scope:A.readOnly?SCOPE_RO:SCOPE_RW,
+      callback:r=>{if(r.error){rej(new Error('구글 로그인 실패: '+(r.error_description||r.error)));return}D.token=r.access_token;D.exp=Date.now()+(Number(r.expires_in)||3600)*1000;LS.set(tkey(),{t:D.token,exp:D.exp});A.fetchUser();res(D.token)},
       error_callback:e=>rej(new Error(e&&e.type==='popup_closed'?'구글 로그인 창이 닫혔습니다.':e&&e.type==='popup_failed_to_open'?'로그인 창이 차단됐습니다. 브라우저의 팝업 차단을 해제하세요.':'구글 로그인에 실패했습니다.'))});
     c.requestAccessToken({prompt:''});
   });
 }
 A.fetchUser=()=>{if(A.settings.userName)return;api('GET','https://www.googleapis.com/drive/v3/about?fields=user(displayName)').then(r=>{const n=r&&r.user&&r.user.displayName;if(n&&!A.settings.userName){A.settings.userName=n;A.saveSettings();A.emit()}}).catch(()=>{})};
-A.signOut=()=>{const t=D.token;D.token=null;D.exp=0;LS.del('danga.token');if(t&&gisReady())google.accounts.oauth2.revoke(t,()=>{});A.emit()};
+A.signOut=()=>{const t=D.token;D.token=null;D.exp=0;LS.del(tkey());if(t&&gisReady())google.accounts.oauth2.revoke(t,()=>{});A.emit()};
 async function api(method,url,body,headers,type){
   const t=cachedToken();if(!t)throw new Error('구글 로그인이 만료됐습니다. 다시 로그인하세요.');
   const r=await fetch(url,{method,headers:Object.assign({Authorization:'Bearer '+t},headers||{}),body});
-  if(r.status===401){D.token=null;LS.del('danga.token');throw new Error('구글 로그인이 만료됐습니다. 다시 로그인하세요.')}
+  if(r.status===401){D.token=null;LS.del(tkey());throw new Error('구글 로그인이 만료됐습니다. 다시 로그인하세요.')}
   if(!r.ok){let m='';try{const j=await r.json();m=j.error&&j.error.message||''}catch(e){}
     if(r.status===403&&/has not been used|disabled/i.test(m))throw new Error('Google Cloud에서 Google Drive API가 꺼져 있습니다. README의 2단계를 확인하세요.');
     if(r.status===404)throw Object.assign(new Error('드라이브에서 파일이나 폴더를 찾지 못했습니다.'),{status:404});
@@ -421,8 +446,8 @@ async function upload(meta,content,fileId){
   return api(fileId?'PATCH':'POST',UP+(fileId?'/'+fileId:'')+'?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime',body,{'Content-Type':'multipart/related; boundary='+b});
 }
 async function subFolder(parent,name,create){const f=(await find("'"+qs(parent)+"' in parents and name = '"+qs(name)+"' and mimeType = '"+FOLDER+"' and trashed = false"))[0];if(f)return f.id;if(!create)return null;return (await mkFolder(name,parent)).id}
-async function resolveFolder(create){
-  const raw=(A.settings.path||'').trim();
+async function resolveFolder(create,pathStr){
+  const raw=(pathStr!=null?pathStr:(A.settings.path||'')).trim();
   const m=raw.match(/folders\/([A-Za-z0-9_-]{10,})/);if(m)return{id:m[1],label:'폴더 링크'};
   if(/^[A-Za-z0-9_-]{25,}$/.test(raw))return{id:raw,label:'폴더 ID'};
   const segs=raw.split('/').map(s=>s.trim()).filter(Boolean);if(segs[0]==='내 드라이브'||segs[0]==='My Drive')segs.shift();
@@ -430,16 +455,21 @@ async function resolveFolder(create){
   for(let k=0;k<segs.length;k++){const id=await subFolder(cur,segs[k],create);if(!id)return{id:null,missing:segs.slice(k),found:segs.slice(0,k)};cur=id}
   return{id:cur,label:'내 드라이브'+(segs.length?' / '+segs.join(' / '):'')};
 }
-async function ensureFolder(create){
-  if(A.settings.folderId&&A.settings.folderFor===A.settings.path)return A.settings.folderId;
-  const r=await resolveFolder(create);if(!r.id)return null;
-  A.settings.folderId=r.id;A.settings.folderFor=A.settings.path;A.saveSettings();return r.id;
+A.activePath=()=>A.readOnly?(A.settings.sharePath||''):(A.settings.path||'');
+async function ensureFolderFor(ro,create){
+  const path=ro?(A.settings.sharePath||''):(A.settings.path||''),idK=ro?'shareFolderId':'folderId',forK=ro?'shareFolderFor':'folderFor';
+  if(A.settings[idK]&&A.settings[forK]===path)return A.settings[idK];
+  const r=await resolveFolder(create,path);if(!r.id)return null;
+  A.settings[idK]=r.id;A.settings[forK]=path;A.saveSettings();return r.id;
 }
-const mainName=()=>(A.settings.prefix||'단가DB').trim()+'.json';
+const ensureFolder=create=>ensureFolderFor(A.readOnly,create);
+const mainName=()=>(A.settings.prefix||'단가DB').trim()+(A.readOnly?'_영업용':'')+'.json';
+const shareName=()=>(A.settings.prefix||'단가DB').trim()+'_영업용.json';
 async function findMain(fid){
   const f=(await find("'"+qs(fid)+"' in parents and name = '"+qs(mainName())+"' and trashed = false"))[0];if(f)return{file:f,main:true};
+  if(A.readOnly)return null;
   const pre=(A.settings.prefix||'단가DB').trim();
-  const l=(await find("'"+qs(fid)+"' in parents and name contains '"+qs(pre)+"' and trashed = false")).filter(x=>/\.json$/i.test(x.name)&&x.mimeType!==FOLDER);
+  const l=(await find("'"+qs(fid)+"' in parents and name contains '"+qs(pre)+"' and trashed = false")).filter(x=>/\.json$/i.test(x.name)&&!/_영업용/.test(x.name)&&x.mimeType!==FOLDER);
   return l[0]?{file:l[0],main:false}:null;
 }
 async function readDb(id){const t=await api('GET',DRV+'/'+id+'?alt=media&supportsAllDrives=true',null,null,'text');const db=A.unpack(t);if(!db)throw new Error('드라이브 파일을 단가 데이터로 읽지 못했습니다.');return db}
@@ -451,7 +481,27 @@ A.statusText={msg:'',cls:''};
 A.status=(msg,cls)=>{A.statusText={msg,cls:cls||''};document.querySelectorAll('[data-status]').forEach(el=>{el.textContent=msg;el.className='status-line'+(cls?' '+cls:'')})};
 
 /* save: merge with whatever another device saved, then write the main file; one dated backup per day */
+A.buildShare=function(){
+  const sells=A.DB.columns.filter(c=>c.group!=='buy'),keys=new Set(sells.map(c=>c.key));
+  const entries=A.DB.entries.filter(e=>keys.has(e.col)&&A.ITEM.get(e.item)).map(e=>({id:e.id,item:e.item,col:e.col,v:e.v,t:e.t,cur:e.cur,from:e.from,at:e.at,base:!!e.base}));
+  const used=new Set(entries.map(e=>e.item));
+  const db={columns:sells.map(c=>({key:c.key,name:c.name,group:c.group})),items:A.DB.items.filter(i=>used.has(i.id)).map(i=>({id:i.id,cat1:i.cat1,cat2:i.cat2,model:i.model})),entries,fx:A.DB.fx.map(f=>clone(f)),groups:A.DB.groups.map(g=>({id:g.id,name:g.name,keys:g.keys.filter(k=>keys.has(k))})).filter(g=>g.keys.length),deleted:[],removedItems:[],removedColumns:[],log:[],fxCurs:[...A.DB.fxCurs],sheetLog:[]};
+  return JSON.stringify({app:APP,schema:SCHEMA,kind:'share',savedAt:nowIso(),db});
+};
+A.saveShare=function(quiet){
+  if(A.readOnly)return Promise.resolve();
+  if(!A.settings.sharePath){A.toast('설정에서 영업용 파일 저장 폴더를 먼저 입력하세요.');return Promise.resolve()}
+  return getToken(!quiet).then(()=>run(async()=>{
+    A.status('영업용 파일을 저장하는 중…');
+    const fid=await ensureFolderFor(true,true),name=shareName();
+    const ex=(await find("'"+qs(fid)+"' in parents and name = '"+qs(name)+"' and trashed = false"))[0],content=A.buildShare();
+    const r=ex?await upload({},content,ex.id):await upload({name,parents:[fid],mimeType:'application/json'},content);
+    A.settings.lastShare=nowIso();A.saveSettings();
+    A.status('영업용 파일을 저장했습니다: '+name+' ('+localDT(r.modifiedTime)+')','ok');A.toast('영업용 파일을 갱신했습니다.');A.emit();
+  })).catch(e=>{if(e&&e.message){A.status(e.message,'err');if(!quiet)A.toast(e.message)}});
+};
 A.save=function(){
+  if(A.readOnly){A.toast('영업용 읽기 전용 모드에서는 저장하지 않습니다. 최신본 불러오기를 이용하세요.');return Promise.resolve()}
   return getToken(true).then(()=>run(async()=>{
     A.status('저장 폴더를 확인하는 중…');
     const fid=await ensureFolder(true);
@@ -474,6 +524,7 @@ A.save=function(){
     A.status('저장했습니다: '+r.name+' ('+localDT(r.modifiedTime)+')','ok');
     A.toast(merged?'다른 기기의 변경과 합쳐서 저장했습니다.':'드라이브에 저장했습니다.');
     A.emit();
+    if(A.settings.autoShare&&A.settings.sharePath)setTimeout(()=>A.saveShare(true),300);
   })).catch(e=>{A.status(e.message,'err');A.toast(e.message);if(e.status===404){A.settings.folderId=null;A.saveSettings()}});
 };
 /* pull: bring the newest Drive copy in, keeping unsaved local changes */
@@ -534,6 +585,7 @@ A.autoSync=function(){if(A.settings.clientId)A.loadGis().catch(()=>{});if(A.sett
 /* ---------- pill ---------- */
 A.pillState=()=>{
   if(busy)return{t:'드라이브 작업 중…',c:''};
+  if(A.readOnly)return A.sync.at?{t:'영업용 · 불러옴 '+shortDT(A.sync.at).slice(5),c:'ok'}:{t:'영업용 · 불러오기 전',c:''};
   if(A.dirty>0)return{t:'저장 안 된 변경 '+A.dirty+'건',c:'dirty'};
   if(A.sync.at)return{t:'저장됨 · '+shortDT(A.sync.at).slice(5),c:'ok'};
   return{t:'드라이브 저장 전',c:''};
@@ -577,6 +629,7 @@ A.renderCell=function(el,i,c,opts){
     '<label class="check full"><input type="checkbox" name="none"> 거래 없음으로 변경 (칸 비우기)</label></div>'+
     '<p class="hint" data-msg>적용일 이전 날짜로 보면 이전 단가가, 이후 날짜로 보면 새 단가가 나옵니다.</p><div class="row-end"><button class="btn primary" type="submit">기록하기</button></div></form>';
   el.innerHTML=b;
+  if(opts.readonly){const fm=el.querySelector('[data-cellform]');if(fm)fm.remove();el.querySelectorAll('[data-edit],[data-del]').forEach(x=>x.remove());return}
   const f=el.querySelector('[data-cellform]');A.setCur(f.cur,lastCur);const d=opts.date||t;f.addEventListener('input',()=>{if(f.dataset.ok){delete f.dataset.ok;f.querySelector('button[type=submit]').textContent='기록하기'}});f.from.value=d>t?d:t;
   f.addEventListener('submit',ev=>{ev.preventDefault();const msg=f.querySelector('[data-msg]');
     const none=f.none.checked,raw=f.v.value.trim().replace(/,/g,''),from=f.from.value;
@@ -585,10 +638,12 @@ A.renderCell=function(el,i,c,opts){
     if(!none){if(raw==='-')tx='-';else{v=Number(raw);if(raw===''||isNaN(v)){msg.textContent='새 단가를 숫자로 입력하세요. 거래를 끊는 경우 "거래 없음"을 체크하세요.';msg.className='hint up';return}}}
     const e={item:i,col:c,v,t:tx,cur:f.cur.value,from,reason:f.reason.value,note:f.note.value.trim()};
     const prevE=A.entryAt(i,c,from),okKey=JSON.stringify([v,tx,e.cur,from]);
-    if(f.dataset.ok!==okKey&&A.isBig(prevE,e)){
-      const same=(prevE.cur||'KRW')===(e.cur||'KRW'),pe=same?(e.v-prevE.v)/prevE.v*100:null;
-      msg.textContent=same?'⚠ '+A.eText(prevE)+' → '+A.eText(e)+' ('+(pe>0?'+':'')+pe.toFixed(0)+'%)로 크게 바뀝니다. 맞으면 한 번 더 눌러 주세요.':'⚠ 통화가 '+A.curLabel(prevE.cur)+' → '+A.curLabel(e.cur)+'(으)로 바뀝니다. 맞으면 한 번 더 눌러 주세요.';
-      msg.className='hint up';f.dataset.ok=okKey;f.querySelector('button[type=submit]').textContent='맞습니다, 기록하기';return}
+    if(f.dataset.ok!==okKey){
+      const parts=[];
+      if(A.isBig(prevE,e)){const same=(prevE.cur||'KRW')===(e.cur||'KRW'),pe=same?(e.v-prevE.v)/prevE.v*100:null;
+        parts.push(same?'⚠ '+A.eText(prevE)+' → '+A.eText(e)+' ('+(pe>0?'+':'')+pe.toFixed(0)+'%)로 크게 바뀝니다.':'⚠ 통화가 '+A.curLabel(prevE.cur)+' → '+A.curLabel(e.cur)+'(으)로 바뀝니다.')}
+      if(isNum(e)){const im=A.impact([e],from);if(im.newNeg.length)parts.push('⚠ 이 변경으로 역마진 칸이 '+im.newNeg.length+'개 늘어납니다 ('+im.newNeg.slice(0,3).map(x=>A.itemName(x.it)+'·'+x.c.name).join(', ')+(im.newNeg.length>3?' 외':'')+').')}
+      if(parts.length){msg.textContent=parts.join(' ')+' 맞으면 한 번 더 눌러 주세요.';msg.className='hint up';f.dataset.ok=okKey;f.querySelector('button[type=submit]').textContent='맞습니다, 기록하기';return}}
     A.addEntry(e);const notice=A.itemMarginNotice(i,from);
     A.toast(from+'부터 '+A.eText(e)+'(으)로 기록했습니다.',{action:{label:'되돌리기',fn:()=>{A.undo();A.renderCell(el,i,c,opts)}}});
     A.renderCell(el,i,c,Object.assign({},opts,{notice}));
@@ -624,7 +679,8 @@ A.renderCell=function(el,i,c,opts){
 };
 
 function catOptions(){return '<option value="">전체</option>'+A.cats().map(c=>'<option>'+esc(c)+'</option>').join('')}
-function colOptions(){return '<option value="">전체</option>'+A.DB.columns.map(c=>'<option value="'+esc(c.key)+'">'+esc(c.name)+(c.group==='buy'?' (매입)':'')+'</option>').join('')}
+function colOptions(){const gs=A.DB.groups.filter(g=>A.groupKeys(g.id).length);return '<option value="">전체</option>'+(gs.length?'<optgroup label="그룹">'+gs.map(g=>'<option value="g:'+esc(g.id)+'">'+esc(g.name)+' ('+A.groupKeys(g.id).length+'곳)</option>').join('')+'</optgroup>':'')+'<optgroup label="거래처">'+A.DB.columns.map(c=>'<option value="'+esc(c.key)+'">'+esc(c.name)+(c.group==='buy'?' (매입)':'')+'</option>').join('')+'</optgroup>'}
+A.colOptions=colOptions;
 function keepVal(sel,html){const v=sel.value;sel.innerHTML=html;sel.value=v}
 
 /* 이력 검색 */
@@ -636,7 +692,7 @@ A.mountHistory=function(el,opts){
   function refresh(){
     keepVal(g('col'),colOptions());keepVal(g('cat'),catOptions());
     const q=g('q').value.trim(),col=g('col').value,cat=g('cat').value,f=g('from').value,t=g('to').value,rq=g('reason').value.trim().toLowerCase(),base=g('base').checked;
-    const match=(e,o)=>{if(!o.base&&e.base)return false;const it=A.ITEM.get(e.item);if(!it||!A.COL.get(e.col))return false;if(o.col&&e.col!==o.col)return false;if(!A.matchItem(it,o.q,o.cat))return false;if(o.f&&e.from<o.f)return false;if(o.t&&e.from>o.t)return false;if(o.rq&&!((e.reason||'')+' '+(e.note||'')).toLowerCase().includes(o.rq))return false;return true};
+    const match=(e,o)=>{if(!o.base&&e.base)return false;const it=A.ITEM.get(e.item);if(!it||!A.COL.get(e.col))return false;if(!A.colMatch(o.col,e.col))return false;if(!A.matchItem(it,o.q,o.cat))return false;if(o.f&&e.from<o.f)return false;if(o.t&&e.from>o.t)return false;if(o.rq&&!((e.reason||'')+' '+(e.note||'')).toLowerCase().includes(o.rq))return false;return true};
     const cond={q,col,cat,f,t,rq,base};
     const list=A.DB.entries.filter(e=>match(e,cond)).sort((a,b)=>-cmpE(a,b));
     let up=0,down=0;const rows=list.map(e=>{const p=A.prevOf(e),x=A.delta(p,e);if(x&&x.d>0)up++;if(x&&x.d<0)down++;return{e,p,x}});
@@ -646,7 +702,7 @@ A.mountHistory=function(el,opts){
     if(!list.length){lastRows=[];
       if(A.isEmpty()){out.innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b>설정에서 단가.xlsx를 가져오거나 드라이브에서 불러오세요.</div>';return}
       const any=A.DB.entries.some(e=>!e.base);
-      const active=[];const cn=A.COL.get(col);
+      const active=[];const cn=col?{name:A.colLabel(col)}:null;
       if(q)active.push('모델 "'+q+'"');if(cn)active.push('거래처 '+cn.name);if(cat)active.push('대구분 '+cat);if(f||t)active.push('적용일 '+(f||'처음')+' ~ '+(t||'오늘 이후'));if(rq)active.push('사유 "'+rq+'"');
       const nBase=base?0:A.DB.entries.filter(e=>match(e,Object.assign({},cond,{base:true}))).length;
       const nOnlyQ=active.length>1||(active.length===1&&!q)?A.DB.entries.filter(e=>match(e,{q,base:true})).length:0;
@@ -658,7 +714,7 @@ A.mountHistory=function(el,opts){
       if(nOnlyQ&&q)h+='<button class="btn'+(nBase?'':' primary')+'" type="button" data-hx="onlyq">모델 "'+esc(q)+'"만으로 찾기 ('+nOnlyQ+'건)</button>';
       if(active.length&&!(nOnlyQ&&q))h+='<button class="btn" type="button" data-hx="reset">조건 초기화</button>';
       out.innerHTML=h+'</div></div>';return}
-    lastRows=rows;const act=[];const cnm=A.COL.get(col);if(q)act.push('모델 "'+q+'"');if(cnm)act.push('거래처 '+cnm.name);if(cat)act.push('대구분 '+cat);if(f||t)act.push('적용일 '+(f||'처음')+' ~ '+(t||'끝'));if(rq)act.push('사유 "'+rq+'"');act.push(base?'기준 단가 포함':'기준 단가 제외');
+    lastRows=rows;const act=[];const cnm=A.COL.get(col);if(q)act.push('모델 "'+q+'"');if(col)act.push('거래처 '+A.colLabel(col));if(cat)act.push('대구분 '+cat);if(f||t)act.push('적용일 '+(f||'처음')+' ~ '+(t||'끝'));if(rq)act.push('사유 "'+rq+'"');act.push(base?'기준 단가 포함':'기준 단가 제외');
     lastDesc='조건: '+act.join(' · ')+' · '+rows.length+'건 (인상 '+up+', 인하 '+down+')';
     const shown=rows.slice(0,600);
     if(opts.cards){
@@ -699,7 +755,7 @@ A.mountAnalysis=function(el,opts){
     if(!g('a').value){const bases=A.DB.entries.filter(e=>e.base).map(e=>e.from).sort();g('a').value=bases[0]||addDays(today(),-30)}
     if(!g('b').value)g('b').value=today();
     const Ad=g('a').value,Bd=g('b').value,colF=g('col').value;const diffs=[];last={diffs,Ad,Bd,colF};
-    for(const it of A.DB.items)for(const c of A.DB.columns){if(colF&&c.key!==colF)continue;const a=A.entryAt(it.id,c.key,Ad),b=A.entryAt(it.id,c.key,Bd);if(!A.sameVal(a&&A.hasVal(a)?a:null,b&&A.hasVal(b)?b:null))diffs.push({it,c,a,b,x:A.delta(a,b)})}
+    for(const it of A.DB.items)for(const c of A.DB.columns){if(!A.colMatch(colF,c.key))continue;const a=A.entryAt(it.id,c.key,Ad),b=A.entryAt(it.id,c.key,Bd);if(!A.sameVal(a&&A.hasVal(a)?a:null,b&&A.hasVal(b)?b:null))diffs.push({it,c,a,b,x:A.delta(a,b)})}
     const up=diffs.filter(d=>d.x&&d.x.d>0).length,down=diffs.filter(d=>d.x&&d.x.d<0).length,nw=diffs.filter(d=>!A.hasVal(d.a)).length,gone=diffs.filter(d=>!A.hasVal(d.b)).length;
     el.querySelector('[data-stats]').innerHTML='<span class="stat">바뀐 칸<b>'+diffs.length+'</b></span><span class="stat">인상<b class="up">'+up+'</b></span><span class="stat">인하<b class="down">'+down+'</b></span><span class="stat">신규<b>'+nw+'</b></span><span class="stat">거래 없음으로<b>'+gone+'</b></span>';
     const dEl=el.querySelector('[data-diff]');
@@ -718,7 +774,7 @@ A.mountAnalysis=function(el,opts){
   let last=null;
   el.addEventListener('input',refresh);
   el.addEventListener('click',ev=>{const x=ev.target.closest('[data-x]');if(!x||!last)return;if(!last.diffs.length){A.toast('두 날짜 사이에 바뀐 단가가 없습니다.');return}
-    const L=last,cn=A.COL.get(L.colF);const up=L.diffs.filter(d=>d.x&&d.x.d>0).length,down=L.diffs.filter(d=>d.x&&d.x.d<0).length;
+    const L=last,cn=L.colF?{name:A.colLabel(L.colF)}:null;const up=L.diffs.filter(d=>d.x&&d.x.d>0).length,down=L.diffs.filter(d=>d.x&&d.x.d<0).length;
     const desc=(cn?'거래처 '+cn.name+' · ':'')+'바뀐 칸 '+L.diffs.length+'개 (인상 '+up+', 인하 '+down+')';
     if(x.dataset.x==='xlsx')A.exportDiffXlsx(L.diffs,L.Ad,L.Bd,desc).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(expErr);else A.printDiff(L.diffs,L.Ad,L.Bd,desc)});
   refresh();return{refresh};
@@ -739,12 +795,35 @@ A.mountFx=function(el){
     const b=ev.target.closest('[data-fxdel]');if(!b)return;
     if(b.dataset.armed){A.DB.fx=A.DB.fx.filter(x=>x.id!==b.dataset.fxdel);A.DB.deleted.push(b.dataset.fxdel);A.touch(1,'환율 삭제');refresh()}else{b.dataset.armed='1';b.textContent='한 번 더'}
   });
-  el.addEventListener('change',ev=>{const i=ev.target.closest('input[data-k]');if(!i)return;const f=A.DB.fx.find(x=>x.id===i.closest('tr').dataset.fx);if(!f)return;const k=i.dataset.k;f[k]=k==='date'?i.value:(i.value===''?null:Number(i.value));A.touch(1,'환율 수정')});
+  el.addEventListener('change',ev=>{const i=ev.target.closest('input[data-k]');if(!i)return;const f=A.DB.fx.find(x=>x.id===i.closest('tr').dataset.fx);if(!f)return;const k=i.dataset.k;const n0=A.alerts(today()).neg.length;f[k]=k==='date'?i.value:(i.value===''?null:Number(i.value));A.touch(1,'환율 수정');const n1=A.alerts(today()).neg.length;if(n1>n0)A.toast('환율 변경으로 역마진 칸이 '+(n1-n0)+'개 늘었습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})});
   refresh();return{refresh};
 };
 
 /* 설정 · 저장 · 가져오기 */
+function mountSalesSettings(el){
+  el.innerHTML='<div class="section"><h2>영업용 보기 설정</h2><p class="hint">이 기기는 <b>영업용 읽기 전용</b>입니다. 판매 단가만 볼 수 있고, 매입가와 마진은 보이지 않으며 수정이나 저장은 할 수 없습니다.</p>'+
+    '<label class="field"><span>구글 클라이언트 ID</span><input type="text" name="clientId" placeholder="관리자에게 받은 클라이언트 ID" autocomplete="off"></label>'+
+    '<label class="field"><span>영업용 폴더 링크</span><input type="text" name="sharePath" placeholder="관리자가 공유해 준 폴더 링크를 붙여 넣기" autocomplete="off"></label>'+
+    '<p class="hint">관리자가 영업용 폴더를 내 구글 계정에 <b>보기 권한</b>으로 공유해야 합니다. 폴더 링크는 드라이브에서 폴더를 열었을 때 주소창에 있는 <code>https://drive.google.com/drive/folders/…</code> 입니다.</p>'+
+    '<label class="check"><input type="checkbox" name="autoSync"> 열 때 최신본 자동 확인</label>'+
+    '<div class="row"><button class="btn primary" type="button" data-act="pull">최신본 불러오기</button><button class="btn" type="button" data-act="signout">로그아웃</button></div>'+
+    '<div class="status-line" data-status></div></div>'+
+    '<div class="section"><h2>일반 모드로 돌아가기</h2><p class="hint">관리자 본인의 기기라면 일반 모드로 돌아갈 수 있습니다. 일반 모드의 데이터는 따로 보관돼 있습니다.</p><div class="row"><button class="btn danger" type="button" data-act="normal">일반 모드로 전환</button></div></div>';
+  const g=n=>el.querySelector('[name="'+n+'"]');
+  const fill=()=>{for(const k of ['clientId','sharePath'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};fill();
+  el.querySelectorAll('[data-status]').forEach(s=>{s.textContent=A.statusText.msg||(A.sync.at?'마지막으로 불러온 시각: '+shortDT(A.sync.at):'최신본 불러오기를 누르면 구글 로그인 창이 뜹니다.');s.className='status-line'+(A.statusText.cls?' '+A.statusText.cls:'')});
+  el.addEventListener('change',ev=>{const n=ev.target.name;
+    if(n==='clientId'){A.settings.clientId=ev.target.value.trim();if(A.settings.clientId)A.loadGis().catch(()=>{})}
+    if(n==='sharePath'&&ev.target.value.trim()!==A.settings.sharePath){A.settings.sharePath=ev.target.value.trim();A.settings.shareFolderId=null;A.settings.shareFolderFor=null}
+    if(n==='autoSync')A.settings.autoSync=ev.target.checked;A.saveSettings()});
+  el.addEventListener('click',ev=>{const b=ev.target.closest('[data-act]');if(!b)return;
+    if(b.dataset.act==='pull')A.pull(true).then(ch=>{if(ch)A.toast('최신본을 불러왔습니다.')});
+    else if(b.dataset.act==='signout'){A.signOut();A.status('로그아웃했습니다.')}
+    else if(b.dataset.act==='normal'){if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 전환';return}A.settings.salesMode=false;A.saveSettings();location.reload()}});
+  return{refresh:fill};
+}
 A.mountSettings=function(el){
+  if(A.readOnly)return mountSalesSettings(el);
   el.innerHTML=
   '<div class="section"><h2>기본 설정</h2>'+
     '<label class="field"><span>입력자 이름</span><input type="text" name="userName" placeholder="단가를 기록할 때 이력에 남습니다" autocomplete="off"></label>'+
@@ -763,6 +842,11 @@ A.mountSettings=function(el){
     '<label class="check"><input type="checkbox" name="autoSync"> 열 때 드라이브 최신본 자동 확인</label>'+
     '<div class="row"><button class="btn primary" type="button" data-act="save">드라이브에 저장</button><button class="btn" type="button" data-act="pull">최신본 불러오기</button><button class="btn" type="button" data-act="check">경로 확인</button><button class="btn" type="button" data-act="signout">로그아웃</button></div>'+
     '<div class="status-line" data-status></div></div>'+
+  '<div class="section"><h2>영업용 공유 (읽기 전용)</h2><p class="hint">영업 담당자에게 <b>매입가와 마진 없이 판매 단가만</b> 보여 주는 파일을 만듭니다. 파일이 들어 있는 폴더를 드라이브에서 담당자에게 <b>보기 권한</b>으로 공유하세요. 담당자는 이 앱을 열어 설정에서 "영업용으로 전환"을 하면 됩니다. (담당자 구글 계정은 테스트 사용자에도 추가해야 합니다.)</p>'+
+    '<label class="field"><span>영업용 파일을 저장할 폴더</span><input type="text" name="sharePath" placeholder="예: 회사 폴더/단가관리/영업용"></label>'+
+    '<label class="check"><input type="checkbox" name="autoShare"> 드라이브에 저장할 때 영업용 파일도 함께 갱신</label>'+
+    '<div class="row"><button class="btn primary" type="button" data-act="share">영업용 파일 저장</button><button class="btn danger" type="button" data-act="salesmode">이 기기를 영업용으로 전환</button></div>'+
+    '<p class="hint" data-sharestat></p></div>'+
   '<div class="section"><div class="row" style="justify-content:space-between"><h2>저장 기록 · 백업</h2><button class="btn small" type="button" data-act="list">목록 보기</button></div><div class="tbl-wrap" data-files><p class="hint">목록 보기를 누르면 저장 파일과 날짜별 백업이 나옵니다.</p></div></div>'+
   '<div class="section"><h2>단가 엑셀 가져오기</h2><p class="hint">처음 시작할 때 원본 <code>단가.xlsx</code>를 가져옵니다. 첫 시트의 양식(대구분·소구분·MODEL, D열부터 거래처)을 읽고, 시트 이름(예: 2026.04)을 기준일로 씁니다. 셀 메모의 EUR·RMB도 반영합니다.</p>'+
     '<div class="row"><label class="btn" for="xlsxIn">이 기기에서 파일 선택</label><input type="file" id="xlsxIn" accept=".xlsx,.xls" hidden></div>'+
@@ -770,7 +854,7 @@ A.mountSettings=function(el){
     '<div data-import></div></div>'+
   '<div class="section"><h2>백업 파일 · 초기화</h2><div class="row"><button class="btn" type="button" data-act="jsonOut">백업 파일 내려받기</button><label class="btn" for="jsonIn">백업 파일 불러오기</label><input type="file" id="jsonIn" accept=".json,application/json" hidden><button class="btn danger" type="button" data-act="wipe">이 기기 데이터 지우기</button></div><p class="hint" data-bstatus>이 기기에도 임시 보관되지만, 드라이브에 저장해야 다른 기기에서 볼 수 있습니다.</p></div>';
   const g=n=>el.querySelector('[name="'+n+'"]');
-  const fill=()=>{for(const k of ['clientId','path','prefix','userName','warnPct','lowMargin','company','sheetNote'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
+  const fill=()=>{const ss=el.querySelector('[data-sharestat]');if(ss)ss.textContent=A.settings.lastShare?'마지막 영업용 파일 저장: '+shortDT(A.settings.lastShare):'아직 영업용 파일을 만들지 않았습니다.';g('autoShare').checked=!!A.settings.autoShare;for(const k of ['clientId','path','prefix','userName','warnPct','lowMargin','company','sheetNote','sharePath'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
   fill();
   el.querySelectorAll('[data-status]').forEach(s=>{s.textContent=A.statusText.msg||(A.settings.clientId?(A.hasToken()?'구글에 로그인돼 있습니다.':'저장하거나 불러오면 구글 로그인 창이 뜹니다.'):'구글 클라이언트 ID를 입력하면 드라이브에 저장할 수 있습니다.');s.className='status-line'+(A.statusText.cls?' '+A.statusText.cls:'')});
   el.addEventListener('change',ev=>{
@@ -779,6 +863,8 @@ A.mountSettings=function(el){
     if(n==='prefix')A.settings.prefix=ev.target.value.trim()||'단가DB';
     if(n==='clientId'){A.settings.clientId=ev.target.value.trim();if(A.settings.clientId)A.loadGis().catch(()=>{})}
     if(n==='autoSync')A.settings.autoSync=ev.target.checked;
+    if(n==='autoShare')A.settings.autoShare=ev.target.checked;
+    if(n==='sharePath'&&ev.target.value.trim()!==A.settings.sharePath){A.settings.sharePath=ev.target.value.trim();A.settings.shareFolderId=null;A.settings.shareFolderFor=null}
     if(n==='userName'||n==='company'||n==='sheetNote')A.settings[n]=ev.target.value.trim();
     if(n==='warnPct'||n==='lowMargin'){const v=ev.target.value.trim();A.settings[n]=v===''?(n==='warnPct'?30:10):Number(v)}
     A.saveSettings();
@@ -797,6 +883,8 @@ A.mountSettings=function(el){
     if(!b){const lb=ev.target.closest('[data-load]');if(lb){const f=files[Number(lb.dataset.load)];if(!f)return;if(A.dirty>0&&!lb.dataset.armed){lb.dataset.armed='1';lb.textContent='변경 '+A.dirty+'건 버리고 불러오기';return}A.loadFile(f).then(()=>A.toast('불러왔습니다.')).catch(e=>A.status(e.message,'err'))}return}
     const act=b.dataset.act;
     if(act==='save')A.save();
+    else if(act==='share')A.saveShare();
+    else if(act==='salesmode'){if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 전환 (이 기기는 읽기 전용이 됩니다)';setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='이 기기를 영업용으로 전환'}},6000);return}A.settings.salesMode=true;A.saveSettings();location.hash='';location.reload()}
     else if(act==='pull')A.pull(true).then(ch=>{if(ch)A.toast('드라이브 최신본을 불러왔습니다.')});
     else if(act==='check')A.checkPath();
     else if(act==='signout'){A.signOut();A.status('로그아웃했습니다.')}
@@ -992,7 +1080,8 @@ A.bulkDialog=function(opts){
   });
   function renderPreview(){
     const R=res;const up=R.changes.filter(c=>{const x=A.delta(c.cur,{v:c.next.v,cur:c.next.cur});return x&&x.d>0}).length,down=R.changes.filter(c=>{const x=A.delta(c.cur,{v:c.next.v,cur:c.next.cur});return x&&x.d<0}).length;
-    let h='<div class="section" style="padding:10px"><b>3. 미리보기</b><div class="stats"><span class="stat">바뀐 칸<b>'+R.changes.length+'</b></span><span class="stat">인상<b class="up">'+up+'</b></span><span class="stat">인하<b class="down">'+down+'</b></span><span class="stat">새 품목<b>'+R.newItems.length+'</b></span><span class="stat">그대로<b>'+R.same+'</b></span></div>';
+    const imp=A.impact(R.changes.map(c=>({item:c.it.id,col:c.col.key,v:c.next.v,t:c.next.t,cur:c.next.cur,from:d})),d);
+    let h='<div class="section" style="padding:10px"><b>3. 미리보기</b><div class="stats"><span class="stat">바뀐 칸<b>'+R.changes.length+'</b></span><span class="stat">인상<b class="up">'+up+'</b></span><span class="stat">인하<b class="down">'+down+'</b></span><span class="stat">새 품목<b>'+R.newItems.length+'</b></span><span class="stat">그대로<b>'+R.same+'</b></span>'+(imp.neg1!==imp.neg0?'<span class="stat">역마진<b class="'+(imp.neg1>imp.neg0?'up':'')+'">'+imp.neg0+' → '+imp.neg1+'</b></span>':'')+'</div>';
     if(R.unknownCols.length)h+='<p class="hint up">모르는 거래처 열은 반영하지 않습니다: '+esc(R.unknownCols.join(', '))+'. 앱에서 거래처를 먼저 추가하세요.</p>';
     if(R.bad.length)h+='<p class="hint up">읽지 못한 칸 '+R.bad.length+'개 (반영 안 함): '+esc(R.bad.slice(0,8).map(b=>b.row+'행'+(b.col?' '+b.col:'')+' "'+b.raw+'"').join(', '))+(R.bad.length>8?' 외':'')+'</p>';
     const tbl=(rows,kind)=>'<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table class="list"><thead><tr><th><input type="checkbox" data-all="'+kind+'" checked aria-label="전체 선택"></th><th>모델</th><th>거래처</th><th class="r">지금</th><th class="r">새 단가</th><th class="r">증감</th></tr></thead><tbody>'+rows+'</tbody></table></div>';

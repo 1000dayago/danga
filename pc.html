@@ -93,7 +93,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 <body>
 <div class="app">
   <aside class="side">
-    <a class="brand" href="#home"><span class="logo">단</span><span><b>단가 관리</b><small id="brandSub"></small></span></a>
+    <a class="brand" href="#home" id="brand"><span class="logo">단</span><span><b>단가 관리</b><small id="brandSub"></small></span></a>
     <nav class="nav" id="nav" aria-label="메뉴"></nav>
     <div class="side-foot">
       <a href="mobile.html">핸드폰 화면 열기</a>
@@ -103,9 +103,10 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
   <div class="main">
     <header class="topbar">
       <div class="titles"><h1 id="pageTitle"></h1><p class="desc" id="pageDesc"></p></div>
-      <button class="btn" id="btnUndo" type="button">↶ 되돌리기</button>
+      <button class="btn rw" id="btnUndo" type="button">↶ 되돌리기</button>
       <span class="pill" id="pill"></span>
-      <button class="btn primary" id="btnSave" type="button">드라이브에 저장</button>
+      <button class="btn primary rw" id="btnSave" type="button">드라이브에 저장</button>
+      <button class="btn primary ro-only" id="btnPull" type="button">최신본 불러오기</button>
     </header>
     <main class="content">
       <section class="view" id="v-home" hidden><div id="homeBox"></div></section>
@@ -115,15 +116,16 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
           <label class="field"><span>기준일</span><input type="date" id="tDate"></label>
           <label class="field grow"><span>모델 · 구분 검색</span><input type="search" id="tSearch" placeholder="예: 102 S 0580, AF, 소결"></label>
           <label class="field"><span>대구분</span><select id="tCat"></select></label>
+          <label class="field"><span>보여 줄 거래처</span><select id="tGroup"></select></label>
           <label class="field"><span>변경 표시</span><select id="tHi"><option value="30">최근 30일 변경</option><option value="7">최근 7일 변경</option><option value="90">최근 90일 변경</option><option value="all">기준 단가 이후 전체</option><option value="off">표시 안 함</option></select></label>
           <div class="field"><span>외화 단가 표시</span><div class="seg mini" id="krwSeg"><button type="button" data-k="0">원래 통화</button><button type="button" data-k="1">원화 환산</button></div></div>
           <label class="check"><input type="checkbox" id="tHideEmpty"> 빈 거래처 열 숨기기</label>
         </div>
         <div class="toolbar">
           <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span>외화는 통화 표시(예: <span class="cur">EUR</span>), 원화 환산 값은 점선 밑줄</span></div>
-          <div class="row" style="margin-left:auto"><button class="btn small" type="button" id="btnAddItem">+ 품목 추가</button><button class="btn small" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small" type="button" id="btnPct">비율 인상 · 인하</button><button class="btn small" type="button" id="btnExport">내보내기</button></div>
+          <div class="row" style="margin-left:auto"><button class="btn small rw" type="button" id="btnAddItem">+ 품목 추가</button><button class="btn small rw" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small rw" type="button" id="btnPct">비율 인상 · 인하</button><button class="btn small" type="button" id="btnExport">내보내기</button></div>
         </div>
-        <p class="hint" style="margin:-6px 0 0">칸을 누르면 이력과 단가 변경, MODEL이나 거래처 이름을 누르면 수정 · 삭제할 수 있습니다.</p>
+        <p class="hint" id="tHint" style="margin:-6px 0 0">칸을 누르면 이력과 단가 변경, MODEL이나 거래처 이름을 누르면 수정 · 삭제할 수 있습니다.</p>
         <div id="tEmpty" hidden></div>
         <div class="scroller" id="tScroll"><table class="grid" id="tGrid"></table></div>
       </section>
@@ -132,7 +134,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
       <section class="view" id="v-analysis" hidden><div id="anaBox"></div></section>
       <section class="view" id="v-margin" hidden><div id="marBox"></div></section>
       <section class="view" id="v-tools" hidden><div id="toolsBox"></div></section>
-      <section class="view" id="v-manage" hidden><div class="cols-2" id="manageBox"></div></section>
+      <section class="view" id="v-manage" hidden><div id="groupsBox"></div><div class="cols-2" id="manageBox"></div></section>
       <section class="view" id="v-setup" hidden><div class="cols-2" id="setupBox"></div></section>
     </main>
   </div>
@@ -150,7 +152,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 (function(){
 "use strict";
 const A=Danga,{$,esc,today,addDays}=A;
-const VIEWS=[
+const VIEWS_ALL=[
   {id:'home',label:'홈',icon:'home',title:'홈',desc:'오늘 확인할 것과 자주 쓰는 작업'},
   {id:'table',label:'단가표',icon:'table',title:'단가표',desc:'기준일의 전체 단가를 보고 바로 바꿉니다'},
   {id:'history',label:'이력',icon:'clock',title:'변경 이력',desc:'단가가 언제, 어떻게 바뀌었는지 찾고, 한 번에 입력한 기록은 묶어서 고칩니다'},
@@ -160,8 +162,11 @@ const VIEWS=[
   {id:'manage',label:'품목 · 거래처',icon:'folder',title:'품목 · 거래처 관리',desc:'이름 변경, 삭제, 복원'},
   {id:'setup',label:'설정',icon:'gear',title:'저장 · 설정',desc:'구글 드라이브 저장, 엑셀 가져오기, 기본 설정'}
 ];
-$('#nav').innerHTML=VIEWS.map((v,i)=>(i===1||i===5?'<div class="sep"></div>':'')+'<a href="#'+v.id+'" data-view="'+v.id+'">'+A.icon(v.icon,18)+'<span>'+esc(v.label)+'</span></a>').join('');
+const VIEWS=A.readOnly?VIEWS_ALL.filter(v=>['table','history','tools','setup'].includes(v.id)):VIEWS_ALL;
+if(A.readOnly){document.body.classList.add('ro');const g=id=>VIEWS_ALL.find(v=>v.id===id);g('setup').title='영업용 설정';g('setup').desc='영업용 폴더 연결과 최신본 불러오기';g('table').desc='판매 단가를 확인합니다 (읽기 전용)';g('tools').desc='거래처별 단가표와 내보내기'}
+$('#nav').innerHTML=VIEWS.map((v,i)=>(v.id==='table'||v.id==='tools'?'<div class="sep"></div>':'')+'<a href="#'+v.id+'" data-view="'+v.id+'">'+A.icon(v.icon,18)+'<span>'+esc(v.label)+'</span></a>').join('');
 let selCell=null,hist,anaHub,marHub,toolsHub,homeHub,manage,setup;
+if(A.readOnly){$('#brand').setAttribute('href','#table');$('#tHint').textContent='칸을 누르면 변경 이력을 볼 수 있습니다. (읽기 전용)'}
 
 /* ---------- price table ---------- */
 function gridHtml(rows,cols,cellFn,opt){
@@ -169,23 +174,24 @@ function gridHtml(rows,cols,cellFn,opt){
   let h='<thead><tr class="g"><th class="c1" rowspan="2">대구분</th><th class="c2" rowspan="2">소구분</th><th class="md" rowspan="2">MODEL</th>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+'</th>';
-  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__');return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
+  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   for(let r=0;r<rows.length;r++){const it=rows[r];h+='<tr>';
     if(r===0||rows[r-1].cat1!==it.cat1){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1)n++;h+='<td class="c1" rowspan="'+n+'">'+esc(it.cat1)+'</td>'}
     if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;h+='<td class="c2" rowspan="'+n+'">'+esc(it.cat2)+'</td>'}
-    h+='<td class="md editable" data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제">'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
+    h+='<td class="md'+(A.readOnly?'':' editable')+'"'+(A.readOnly?'':' data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제"')+'>'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
   return h+'</tbody>';
 }
 function renderTable(){
   const sel=$('#tCat'),cv=sel.value;sel.innerHTML='<option value="">전체</option>'+A.cats().map(c=>'<option>'+esc(c)+'</option>').join('');sel.value=cv;
   document.querySelectorAll('#krwSeg button').forEach(b=>b.setAttribute('aria-selected',String((b.dataset.k==='1')===A.view.krw)));
+  const gsel=$('#tGroup'),gv=gsel.value;gsel.innerHTML='<option value="">전체 거래처</option>'+A.DB.groups.filter(g=>A.groupKeys(g.id).length).map(g=>'<option value="g:'+esc(g.id)+'">'+esc(g.name)+'</option>').join('');gsel.value=gv;
   const empty=A.isEmpty();$('#tEmpty').hidden=!empty;$('#tScroll').hidden=empty;
-  if(empty){$('#tEmpty').innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>처음이면 원본 단가.xlsx를 가져오고, 다른 기기에서 저장한 적이 있으면 드라이브에서 불러오세요.</span><a class="btn primary" href="#setup">저장 · 설정으로 가기</a></div>';return}
+  if(empty){$('#tEmpty').innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>'+(A.readOnly?'설정에서 영업용 폴더를 연결하고 최신본을 불러오세요.':'처음이면 원본 단가.xlsx를 가져오고, 다른 기기에서 저장한 적이 있으면 드라이브에서 불러오세요.')+'</span><a class="btn primary" href="#setup">저장 · 설정으로 가기</a></div>';return}
   const d=$('#tDate').value||today(),q=$('#tSearch').value.trim(),cat=sel.value,hi=$('#tHi').value;
   const since=hi==='off'?null:hi==='all'?'0000':addDays(d,-Number(hi));
   const rows=A.DB.items.filter(it=>A.matchItem(it,q,cat));
-  let cols=A.DB.columns;if($('#tHideEmpty').checked)cols=cols.filter(c=>rows.some(it=>A.hasVal(A.entryAt(it.id,c.key,d))));
+  let cols=A.DB.columns.filter(c=>c.group==='buy'||A.colMatch($('#tGroup').value,c.key));if($('#tHideEmpty').checked)cols=cols.filter(c=>rows.some(it=>A.hasVal(A.entryAt(it.id,c.key,d))));
   $('#tGrid').innerHTML=gridHtml(rows,cols,(it,c)=>{
     const e=A.entryAt(it.id,c.key,d);let cls='v'+(c.group==='buy'?' buy':'');
     if(e&&!A.isNum(e)&&e.t)cls+=' txt';if(A.isChanged(e,since))cls+=' chg';if(A.hasFuture(it.id,c.key,d))cls+=' fut';
@@ -227,12 +233,12 @@ const noData=()=>{if(A.isEmpty()){A.toast('단가 데이터가 없습니다. 설
 function openCell(i,c){
   const it=A.ITEM.get(i),col=A.COL.get(c);if(!it||!col)return;selCell={i,c};
   $('#dPath').textContent=A.itemLabel(it);$('#dModel').textContent=it.model||'(모델 없음)';$('#dCol').textContent=col.name+(col.group==='buy'?' · 매입가':' · 판매가');
-  A.renderCell($('#dBody'),i,c,{date:$('#tDate').value});$('#drawer').hidden=false;$('#scrim').hidden=false;if(cur()==='table')renderTable();
+  A.renderCell($('#dBody'),i,c,{date:$('#tDate').value,readonly:A.readOnly});$('#drawer').hidden=false;$('#scrim').hidden=false;if(cur()==='table')renderTable();
 }
 function closeDrawer(){$('#drawer').hidden=true;$('#scrim').hidden=true;selCell=null;if(cur()==='table')renderTable()}
 $('#dClose').addEventListener('click',closeDrawer);$('#scrim').addEventListener('click',closeDrawer);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('#modal')&&!$('#modal').hidden)A.closeModal();else if(!$('#drawer').hidden)closeDrawer()}});
-document.addEventListener('danga:undo',()=>{if(selCell&&!$('#drawer').hidden)A.renderCell($('#dBody'),selCell.i,selCell.c,{date:$('#tDate').value})});
+document.addEventListener('danga:undo',()=>{if(selCell&&!$('#drawer').hidden)A.renderCell($('#dBody'),selCell.i,selCell.c,{date:$('#tDate').value,readonly:A.readOnly})});
 document.addEventListener('click',ev=>{
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
   const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}
@@ -240,7 +246,7 @@ document.addEventListener('click',ev=>{
 });
 
 /* ---------- navigation ---------- */
-const cur=()=>{const v=location.hash.slice(1);return VIEWS.some(x=>x.id===v)?v:'home'};
+const cur=()=>{const v=location.hash.slice(1);return VIEWS.some(x=>x.id===v)?v:(A.readOnly?'table':'home')};
 const ctx={
   date:()=>$('#tDate').value||today(),cat:()=>$('#tCat').value,
   find:()=>{location.hash='#table';setTimeout(()=>$('#tSearch').focus(),60)},
@@ -253,6 +259,7 @@ function render(){
   else if(v==='history')hist.refresh();
   else if(v==='analysis')anaHub.refresh();
   else if(v==='margin')marHub.refresh();
+  else if(v==='tools')toolsHub.refresh();
   else if(v==='manage')manage.refresh();
   else if(v==='setup')setup.refresh();
 }
@@ -267,9 +274,10 @@ function route(){
 window.addEventListener('hashchange',route);
 
 /* ---------- wiring ---------- */
-['tDate','tSearch','tCat','tHi','tHideEmpty'].forEach(id=>$('#'+id).addEventListener('input',()=>{renderTable();A.LS.set('danga.pc',{hi:$('#tHi').value,hide:$('#tHideEmpty').checked})}));
+['tDate','tSearch','tCat','tGroup','tHi','tHideEmpty'].forEach(id=>$('#'+id).addEventListener('input',()=>{renderTable();A.LS.set('danga.pc',{hi:$('#tHi').value,hide:$('#tHideEmpty').checked})}));
 $('#krwSeg').addEventListener('click',ev=>{const b=ev.target.closest('button[data-k]');if(b)A.setKrw(b.dataset.k==='1')});
 $('#btnSave').addEventListener('click',()=>A.save());
+$('#btnPull').addEventListener('click',()=>A.pull(true).then(ch=>{if(ch)A.toast('최신본을 불러왔습니다.')}));
 $('#btnAddItem').addEventListener('click',()=>A.runTool('add',ctx));
 $('#btnBulk').addEventListener('click',()=>A.runTool('bulk',ctx));
 $('#btnPct').addEventListener('click',()=>A.runTool('pct',ctx));
@@ -281,12 +289,14 @@ let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy(
 /* ---------- boot ---------- */
 $('#tDate').value=today();
 const p=A.LS.get('danga.pc');if(p){if(p.hi)$('#tHi').value=p.hi;$('#tHideEmpty').checked=!!p.hide}
-homeHub=A.mountHome($('#homeBox'),ctx);
-hist=A.mountTabs($('#v-history'),[{id:'list',label:'변경 내역',mount:el=>A.mountHistory(el)},{id:'batch',label:'일괄 변경 묶음',mount:el=>A.mountBatches(el)}],'hist');
-anaHub=A.mountTabs($('#anaBox'),[{id:'diff',label:'변경 비교',mount:el=>A.mountAnalysis(el)},{id:'compare',label:'거래처 비교',mount:el=>A.mountCompare(el)},{id:'upcoming',label:'적용 예정 단가',mount:el=>A.mountUpcoming(el)}],'ana');
-marHub=A.mountTabs($('#marBox'),[{id:'table',label:'마진표',mount:mountMarginTable},{id:'sim',label:'원가 변동 시뮬레이션',mount:el=>A.mountSim(el)},{id:'fx',label:'환율',mount:el=>{el.innerHTML='<div class="section" id="fxBox"></div>';return A.mountFx($('#fxBox'))}}],'mar');
+homeHub=A.readOnly?{refresh(){}}:A.mountHome($('#homeBox'),ctx);
+hist=A.mountTabs($('#v-history'),A.readOnly?[{id:'list',label:'변경 내역',mount:el=>A.mountHistory(el)}]:[{id:'list',label:'변경 내역',mount:el=>A.mountHistory(el)},{id:'batch',label:'일괄 변경 묶음',mount:el=>A.mountBatches(el)},{id:'audit',label:'수정 · 삭제 내역',mount:el=>A.mountAudit(el)}],'hist');
+if(!A.readOnly){
+  anaHub=A.mountTabs($('#anaBox'),[{id:'diff',label:'변경 비교',mount:el=>A.mountAnalysis(el)},{id:'compare',label:'거래처 비교',mount:el=>A.mountCompare(el)},{id:'trend',label:'추이 비교',mount:el=>A.mountTrend(el)},{id:'upcoming',label:'적용 예정 단가',mount:el=>A.mountUpcoming(el)}],'ana');
+  marHub=A.mountTabs($('#marBox'),[{id:'table',label:'마진표',mount:mountMarginTable},{id:'sim',label:'원가 변동 시뮬레이션',mount:el=>A.mountSim(el)},{id:'fx',label:'환율',mount:el=>{el.innerHTML='<div class="section" id="fxBox"></div>';return A.mountFx($('#fxBox'))}}],'mar');
+  const gHub=A.mountGroups($('#groupsBox')),mHub=A.mountManage($('#manageBox'));manage={refresh(){gHub.refresh();mHub.refresh()}};
+}
 toolsHub=A.mountTools($('#toolsBox'),ctx);
-manage=A.mountManage($('#manageBox'));
 setup=A.mountSettings($('#setupBox'));
 A.renderPill($('#pill'));route();A.autoSync();
 })();

@@ -228,3 +228,6 @@ table.list{border-collapse:collapse;width:100%;font-size:13px}
 .batchrow:last-child{border-bottom:none}
 .batchrow .bi{min-width:0}
 .batchform .list td{white-space:nowrap}
+.dotc{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+body.ro .rw{display:none!important}
+body:not(.ro) .ro-only{display:none!important}
