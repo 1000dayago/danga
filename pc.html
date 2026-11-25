@@ -190,7 +190,7 @@ function gridHtml(rows,cols,cellFn,opt){
         (opt.edit?'<div class="oh" draggable="true" data-dk="cat" data-c1="'+esc(it.cat1)+'" title="끌어서 대구분 순서 바꾸기">⠿</div>'+mvb('cat','data-c1="'+esc(it.cat1)+'"')+' ':'')+
         (it._pin?'<span class="pinlbl">'+A.icon('pin',13)+' 고정</span>':esc(it.cat1)+(opt.edit?'':'<button type="button" class="pinb'+(A.isPinCat(it.cat1)?' on':'')+'" data-pincat="'+esc(it.cat1)+'" title="대구분 맨 위에 고정">'+A.icon('pin',13)+'</button>'))+'</td>'}
     if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;
-      h+='<td class="c2" rowspan="'+n+'"'+(opt.edit?' data-sub="'+esc(it.cat2)+'" data-c1="'+esc(it.cat1)+'"':'')+'>'+(opt.edit?'<div class="oh" draggable="true" data-dk="sub" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 소구분 순서 바꾸기">⠿</div>'+mvb('sub','data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'"')+' ':'')+esc(it.cat2)+'</td>'}
+      h+='<td class="c2" rowspan="'+n+'"'+(opt.edit?' data-sub="'+esc(it.cat2)+'" data-c1="'+esc(it.cat1)+'"':'')+'>'+(opt.edit?'<div class="oh" draggable="true" data-dk="sub" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 순서 바꾸기 · 다른 대구분 칸에 놓으면 그 대구분으로 이동">⠿</div>'+mvb('sub','data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'"')+'<button type="button" class="mvb" data-mvsub data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="다른 대구분으로 이동">⇄</button> ':'')+esc(it.cat2)+'</td>'}
     const ed=A.readOnly||opt.edit;
     h+='<td class="md'+(ed?'':' editable')+'"'+(ed?'':' data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제"')+'>'+
       (opt.edit?'<span class="oh" draggable="true" data-dk="item" data-id="'+esc(it.id)+'" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 품목 순서 바꾸기">⠿</span>'+mvb('item','data-id="'+esc(it.id)+'"')+' ':'')+esc(it.model)+
@@ -261,6 +261,7 @@ document.addEventListener('click',ev=>{
   const so=ev.target.closest('[data-sort]');if(so){A.cycleSort(so.dataset.sort);return}
   const pi=ev.target.closest('[data-pinitem]');if(pi){A.toggleFav(pi.dataset.pinitem);return}
   const pc=ev.target.closest('[data-pincat]');if(pc){A.togglePinCat(pc.dataset.pincat);return}
+  const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
   const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
   const gmn=ev.target.closest('[data-gman]');if(gmn){A.groupDialog(gmn.dataset.gman);return}
@@ -310,13 +311,15 @@ function dropTarget(ev){
   const pos=el=>{const r=el.getBoundingClientRect();return ev.clientY<r.top+r.height/2?'before':'after'};
   if(!drag)return null;
   if(drag.kind==='item'){const tr=ev.target.closest('tr[data-iid]');if(!tr||tr.dataset.c1!==drag.c1||tr.dataset.c2!==drag.c2||tr.dataset.iid===drag.id)return null;return{el:tr,pos:pos(tr),id:tr.dataset.iid}}
-  if(drag.kind==='sub'){const td=ev.target.closest('td.c2[data-sub]');if(!td||td.dataset.c1!==drag.c1||td.dataset.sub===drag.c2)return null;return{el:td,pos:pos(td),c2:td.dataset.sub}}
+  if(drag.kind==='sub'){const td=ev.target.closest('td.c2[data-sub]');
+    if(td){if(td.dataset.c1===drag.c1){if(td.dataset.sub===drag.c2)return null;return{el:td,pos:pos(td),c2:td.dataset.sub}}return{el:td,pos:pos(td),c2:td.dataset.sub,nc1:td.dataset.c1}}
+    const t1=ev.target.closest('td.c1[data-cat]');if(t1&&t1.dataset.cat!==drag.c1)return{el:t1,pos:'after',nc1:t1.dataset.cat};return null}
   const td=ev.target.closest('td.c1[data-cat]');if(!td||td.dataset.cat===drag.c1)return null;return{el:td,pos:pos(td),c1:td.dataset.cat};
 }
 grid.addEventListener('dragstart',ev=>{const h=ev.target.closest('[data-dk]');if(!h)return;drag={kind:h.dataset.dk,id:h.dataset.id,c1:h.dataset.c1,c2:h.dataset.c2};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',drag.kind);const tr=h.closest('tr');if(tr&&drag.kind==='item')tr.classList.add('dragging')});
 grid.addEventListener('dragover',ev=>{if(!drag)return;const t=dropTarget(ev);grid.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));if(!t)return;ev.preventDefault();t.el.classList.add(t.pos==='before'?'drop-before':'drop-after')});
 grid.addEventListener('drop',ev=>{if(!drag)return;ev.preventDefault();const t=dropTarget(ev),d=drag;clearInd();drag=null;if(!t)return;
-  if(d.kind==='item')A.moveItem(d.id,t.id,t.pos);else if(d.kind==='sub')A.moveSub(d.c1,d.c2,t.c2,t.pos);else A.moveCat(d.c1,t.c1,t.pos)});
+  if(d.kind==='item')A.moveItem(d.id,t.id,t.pos);else if(d.kind==='sub'){if(t.nc1){try{A.moveSubTo(d.c1,d.c2,t.nc1,t.c2,t.pos);A.toast('소구분을 '+t.nc1+'(으)로 옮겼습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}catch(e){A.toast(e.message)}}else A.moveSub(d.c1,d.c2,t.c2,t.pos)}else A.moveCat(d.c1,t.c1,t.pos)});
 grid.addEventListener('dragend',()=>{clearInd();drag=null});
 $('#btnSave').addEventListener('click',()=>A.save());
 $('#btnPull').addEventListener('click',()=>A.pull(true).then(ch=>{if(ch)A.toast('최신본을 불러왔습니다.')}));

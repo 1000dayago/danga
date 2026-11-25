@@ -159,7 +159,7 @@ function renderPrices(){
     if(g!==grp){if(open)h+='</div>';
       let hd;
       if(it._pin)hd='<div class="grp"><span class="pinlbl">'+A.icon('pin',14)+' 고정</span></div>';
-      else if(editOrder)hd='<div class="grp ged"><span>'+esc(g)+'</span><span class="mvs"><span class="hint">대구분</span><button type="button" data-mv="cat" data-dir="up" data-c1="'+esc(it.cat1)+'">▲</button><button type="button" data-mv="cat" data-dir="down" data-c1="'+esc(it.cat1)+'">▼</button>'+(it.cat2?'<span class="hint">소구분</span><button type="button" data-mv="sub" data-dir="up" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▲</button><button type="button" data-mv="sub" data-dir="down" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▼</button>':'')+'</span></div>';
+      else if(editOrder)hd='<div class="grp ged"><span>'+esc(g)+'</span><span class="mvs"><span class="hint">대구분</span><button type="button" data-mv="cat" data-dir="up" data-c1="'+esc(it.cat1)+'">▲</button><button type="button" data-mv="cat" data-dir="down" data-c1="'+esc(it.cat1)+'">▼</button>'+(it.cat2?'<span class="hint">소구분</span><button type="button" data-mv="sub" data-dir="up" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▲</button><button type="button" data-mv="sub" data-dir="down" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▼</button><button type="button" data-mvsub data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">⇄ 이동</button>':'')+'</span></div>';
       else hd='<div class="grp"><span>'+esc(g)+'</span><button type="button" class="pinb'+(A.isPinCat(it.cat1)?' on':'')+'" data-pincat="'+esc(it.cat1)+'" title="이 대구분을 맨 위에 고정">'+A.icon('pin',15)+'</button></div>';
       h+=hd+'<div class="items">';grp=g;open=true}
     if(editOrder){h+='<div class="irow ed"><span class="l"><span class="m">'+esc(A.itemName(it))+'</span></span><span class="mvs"><button type="button" data-mv="item" data-dir="up" data-id="'+esc(it.id)+'">▲</button><button type="button" data-mv="item" data-dir="down" data-id="'+esc(it.id)+'">▼</button></span></div>';continue}
@@ -220,6 +220,7 @@ document.addEventListener('danga:undo',()=>{if(sheetCell&&!$('#sheet').hidden)A.
 const addItem=()=>A.addItemDialog({cat1:cat||undefined,date:date(),onDone:(it,n)=>{if(n===1&&it){curItem=it.id;A.LS.set('danga.m.item',curItem);location.hash='#item'}}});
 document.addEventListener('click',ev=>{
   if(ev.target.closest('#modal')||ev.target.closest('#curpick'))return;
+  const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
   const mv=ev.target.closest('[data-mv]');if(mv){A.moveStep(mv.dataset.mv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const pcat=ev.target.closest('[data-pincat]');if(pcat){A.togglePinCat(pcat.dataset.pincat);return}
   if(ev.target.closest('#btnMOrder')){editOrder=!editOrder;renderPrices();return}

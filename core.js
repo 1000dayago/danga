@@ -247,6 +247,26 @@ function applyOrder(t,label){A.DB.items=flat(t);A.DB.itemsUpd=new Date().toISOSt
 const place=(arr,x,tg,pos)=>{arr.splice(arr.indexOf(x),1);let i=arr.indexOf(tg);if(pos==='after')i++;arr.splice(i,0,x)};
 A.moveItem=(id,tid,pos)=>{const it=A.ITEM.get(id),tg=A.ITEM.get(tid);if(!it||!tg||id===tid||it.cat1!==tg.cat1||it.cat2!==tg.cat2)return false;const t=tree(),b=t.find(a=>a.name===it.cat1).subs.find(s=>s.name===it.cat2);place(b.items,it,tg,pos);applyOrder(t,'순서 변경: '+A.itemName(it));return true};
 A.moveSub=(c1,c2,tc2,pos)=>{if(c2===tc2)return false;const t=tree(),a=t.find(x=>x.name===c1);if(!a)return false;const s=a.subs.find(x=>x.name===c2),g=a.subs.find(x=>x.name===tc2);if(!s||!g)return false;place(a.subs,s,g,pos);applyOrder(t,'순서 변경: '+c1+' › '+(c2||'(소구분 없음)'));return true};
+/* 소구분을 다른 대구분으로 이동 (tc2가 있으면 그 소구분 앞/뒤, 없으면 맨 끝). 같은 이름 소구분이 있으면 합쳐집니다 */
+A.moveSubTo=(c1,c2,nc1,tc2,pos)=>{
+  nc1=norm(nc1);if(!nc1)throw new Error('옮길 대구분을 입력하세요.');if(nc1===c1)return false;
+  const t=tree(),a=t.find(x=>x.name===c1);if(!a)return false;const s=a.subs.find(x=>x.name===c2);if(!s)return false;
+  let g=t.find(x=>x.name===nc1);const exist=g&&g.subs.find(x=>x.name===c2);
+  if(exist)for(const it of s.items){const d=A.findDupItem(nc1,c2,it.model,it.id);if(d&&!s.items.includes(d))throw new Error('합치면 같은 모델이 겹칩니다: '+(it.model||'(모델 없음)'))}
+  a.subs.splice(a.subs.indexOf(s),1);if(!a.subs.length)t.splice(t.indexOf(a),1);
+  if(!g){g={name:nc1,subs:[]};t.push(g)}
+  const stamp=updStamp();for(const it of s.items){it.cat1=nc1;it.upd=stamp}
+  if(exist)exist.items.push(...s.items);
+  else{const tg=tc2!=null?g.subs.find(x=>x.name===tc2):null;if(tg){g.subs.push(s);place(g.subs,s,tg,pos)}else g.subs.push(s)}
+  applyOrder(t,'소구분 이동: '+c1+' › '+(c2||'(소구분 없음)')+' → '+nc1);return true};
+A.moveSubDialog=function(c1,c2){
+  const cats=A.cats().filter(x=>x!==c1);
+  openModal('<form class="mvsub" autocomplete="off"><h2>소구분 이동</h2><p class="hint">'+esc(c1+' › '+(c2||'(소구분 없음)'))+' 의 품목을 다른 대구분으로 옮깁니다. 가격 기록은 그대로입니다. 같은 이름의 소구분이 있으면 합쳐집니다.</p><label class="field"><span>옮길 대구분</span><select name="s">'+cats.map(x=>'<option>'+esc(x)+'</option>').join('')+'<option value="__new">새 대구분 만들기…</option></select></label><label class="field" data-newf hidden><span>새 대구분 이름</span><input type="text" name="nn"></label><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">이동</button></div></form>',f=>{
+    const nc=f.s.value==='__new'?f.nn.value:f.s.value;
+    try{A.moveSubTo(c1,c2,nc);A.toast('소구분을 '+norm(nc)+'(으)로 옮겼습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}catch(e){f.querySelector('[data-err]').textContent=e.message;return false}
+  });
+  const f=document.querySelector('#modal form.mvsub');if(!f)return;const upd=()=>{f.querySelector('[data-newf]').hidden=f.s.value!=='__new'};f.s.addEventListener('change',upd);upd();
+};
 A.moveCat=(c1,tc1,pos)=>{if(c1===tc1)return false;const t=tree(),a=t.find(x=>x.name===c1),g=t.find(x=>x.name===tc1);if(!a||!g)return false;place(t,a,g,pos);applyOrder(t,'순서 변경: '+c1);return true};
 A.moveStep=(level,ref,dir)=>{
   const t=tree();let arr,x;
@@ -1222,7 +1242,7 @@ A.mountManage=function(el){
     let cats='';
     for(const c1 of A.cats()){const its=A.DB.items.filter(i=>i.cat1===c1);const c2s=[...new Set(its.map(i=>i.cat2))];
       cats+='<tr><td><b>'+esc(c1)+'</b></td><td class="r num">'+its.length+'</td><td class="r"><button class="btn small" type="button" data-mk="1" data-c1="'+esc(c1)+'">이름 변경</button></td></tr>';
-      for(const c2 of c2s){if(!c2&&c2s.length===1)continue;cats+='<tr><td style="padding-left:22px">› '+esc(c2||'(소구분 없음)')+'</td><td class="r num">'+its.filter(i=>i.cat2===c2).length+'</td><td class="r">'+(c2?'<button class="btn small" type="button" data-mk="2" data-c1="'+esc(c1)+'" data-c2="'+esc(c2)+'">이름 변경</button>':'')+'</td></tr>'}}
+      for(const c2 of c2s){if(!c2&&c2s.length===1)continue;cats+='<tr><td style="padding-left:22px">› '+esc(c2||'(소구분 없음)')+'</td><td class="r num">'+its.filter(i=>i.cat2===c2).length+'</td><td class="r">'+(c2?'<button class="btn small" type="button" data-mk="2" data-c1="'+esc(c1)+'" data-c2="'+esc(c2)+'">이름 변경</button> <button class="btn small" type="button" data-mvs data-c1="'+esc(c1)+'" data-c2="'+esc(c2)+'">대구분 이동</button>':'')+'</td></tr>'}}
     const ri=A.DB.removedItems,rc=A.DB.removedColumns;
     const rem=rc.map(c=>'<tr><td><span class="tag">거래처</span> '+esc(c.name)+'</td><td class="hint num">'+esc(shortDT(c.upd?localDT(c.upd):''))+'</td><td class="r"><button class="btn small" type="button" data-rc="'+esc(c.key)+'">복원</button></td></tr>').join('')+
       ri.map(it=>'<tr><td><span class="tag">품목</span> '+esc(itemPath(it))+'</td><td class="hint num">'+esc(it.upd?localDT(it.upd):'')+'</td><td class="r"><button class="btn small" type="button" data-ri="'+esc(it.id)+'">복원</button></td></tr>').join('');
@@ -1239,6 +1259,7 @@ A.mountManage=function(el){
       else if(b.dataset.mk)A.renameCatDialog(Number(b.dataset.mk),b.dataset.c1,b.dataset.mk==='2'?b.dataset.c2:b.dataset.c1);
       else if(b.dataset.rc){A.restoreColumn(b.dataset.rc);A.toast('거래처를 복원했습니다.')}
       else if(b.dataset.ri){A.restoreItem(b.dataset.ri);A.toast('품목을 복원했습니다.')}
+      else if(b.hasAttribute('data-mvs'))A.moveSubDialog(b.dataset.c1,b.dataset.c2);
       else if(b.dataset.gman)A.groupDialog(b.dataset.gman);
       else if(b.hasAttribute('data-addcol'))A.addColDialog();
     }catch(e){A.toast(e.message)}
