@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="common.css?v=19">
 <style>
 /* Mobile: app bar (title, undo, save) + five bottom tabs; 단가 tab = item list -> item detail with each customer's price; history opens as a bottom sheet */
 body{font-size:15px;padding-bottom:calc(66px + env(safe-area-inset-bottom,0px))}
@@ -125,8 +125,8 @@ main>section{display:flex;flex-direction:column;gap:12px;min-width:0}
   <div class="sheet-body" id="sBody"></div>
 </div>
 
-<script src="core.js"></script>
-<script src="tools.js"></script>
+<script src="core.js?v=19"></script>
+<script src="tools.js?v=19"></script>
 <script>
 (function(){
 "use strict";
@@ -173,7 +173,7 @@ function renderPrices(){
   if(open)h+='</div>';
   const s=A.settings.sort||{},cs=['model','cat2','cat1'].find(k=>s[k]),curSort=cs?cs+':'+s[cs]:'';
   const so=[['','기본 순서'],['model:asc','모델 이름 ▲'],['model:desc','모델 이름 ▼'],['cat2:asc','소구분 ▲'],['cat2:desc','소구분 ▼'],['cat1:asc','대구분 ▲'],['cat1:desc','대구분 ▼']];
-  const ctl='<div class="row ordctl">'+(editOrder?'':'<label class="field" style="flex:1;min-width:130px"><span>정렬</span><select id="mSort">'+so.map(x=>'<option value="'+x[0]+'"'+(x[0]===curSort?' selected':'')+'>'+x[1]+'</option>').join('')+'</select></label>')+'<button class="btn small rw'+(editOrder?' primary':'')+'" type="button" id="btnMOrder">'+(editOrder?'순서 바꾸기 끝내기':'순서 바꾸기')+'</button>'+(A.hasSort()&&!editOrder?'<button class="btn small rw" type="button" id="btnMSortSave">정렬을 순서로 저장</button><button class="btn small" type="button" id="btnMSortClear">정렬 해제</button>':'')+'</div>'+(editOrder?'<div class="status-line">순서 바꾸는 중: ▲▼ 버튼으로 한 칸씩 옮깁니다. 품목은 같은 소구분 안에서, 소구분은 같은 대구분 안에서 옮깁니다. (검색·정렬·고정은 잠시 꺼집니다)</div>':'');
+  const ctl='<div class="row ordctl">'+(editOrder?'':'<label class="field" style="flex:1;min-width:130px"><span>정렬</span><select id="mSort">'+so.map(x=>'<option value="'+x[0]+'"'+(x[0]===curSort?' selected':'')+'>'+x[1]+'</option>').join('')+'</select></label>')+'<button class="btn small rw'+(editOrder?' primary':'')+'" type="button" id="btnMOrder">'+(editOrder?'순서 바꾸기 끝내기':'순서 바꾸기')+'</button>'+(A.hasSort()&&!editOrder?'<button class="btn small rw" type="button" id="btnMSortSave">정렬을 순서로 저장</button><button class="btn small" type="button" id="btnMSortClear">정렬 해제</button>':'')+'</div>'+(editOrder?'<div class="status-line">순서 바꾸는 중: ▲▼ 버튼으로 한 칸씩 옮깁니다. 품목은 같은 소구분 안에서, 소구분은 같은 대구분 안에서 옮깁니다. (검색·정렬·고정은 잠시 꺼집니다)</div><div class="row"><button class="btn small" type="button" data-gordtop="buy">매입처 순서 바꾸기</button><button class="btn small" type="button" data-gordtop="sell">판매처 순서 바꾸기</button></div>':'');
   el.innerHTML=ctl+h+(editOrder?'':'<div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">주황 점: 최근 30일 안에 바뀐 단가가 있음 · 핀: 맨 위에 고정</span><button class="btn rw" type="button" data-additem>+ 품목 추가</button></div>');
 }
 
@@ -223,6 +223,7 @@ const addItem=()=>A.addItemDialog({cat1:cat||undefined,date:date(),onDone:(it,n)
 document.addEventListener('click',ev=>{
   if(ev.target.closest('#modal')||ev.target.closest('#curpick'))return;
   const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
+  const go=ev.target.closest('[data-gordtop]');if(go){A.groupDialog(go.dataset.gordtop);return}
   const mv=ev.target.closest('[data-mv]');if(mv){A.moveStep(mv.dataset.mv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const pcat=ev.target.closest('[data-pincat]');if(pcat){A.togglePinCat(pcat.dataset.pincat);return}
   if(ev.target.closest('#btnMOrder')){editOrder=!editOrder;renderPrices();return}

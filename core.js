@@ -117,7 +117,7 @@ A.saveGroup=function(g){
   const now=new Date().toISOString(),ex=g.id&&A.DB.groups.find(x=>x.id===g.id);
   if(ex){const before=ex.name;Object.assign(ex,{name:g.name,keys:g.keys.slice(),upd:now});logChange('그룹 수정: '+(before!==g.name?before+' → ':'')+g.name+' ('+g.keys.length+'곳)')}
   else{A.DB.groups.push({id:uid('g'),name:g.name,keys:g.keys.slice(),upd:now});logChange('그룹 만들기: '+g.name+' ('+g.keys.length+'곳)')}
-  commit();
+  A.DB.colsUpd=new Date().toISOString();A.normalizeCols();commit();
 };
 A.removeGroup=id=>{const g=A.DB.groups.find(x=>x.id===id);if(!g)return;A.DB.groups=A.DB.groups.filter(x=>x.id!==id);A.DB.deleted.push(id);logChange('그룹 삭제: '+g.name);commit()};
 A.suggestGroups=()=>{const m=new Map();for(const c of A.DB.columns){if(c.group==='buy')continue;const w=c.name.split(/\s+/)[0];if(w.length<2||w===c.name)continue;if(!m.has(w))m.set(w,[]);m.get(w).push(c.key)}
@@ -231,7 +231,7 @@ A.mergeDb=function(local,remote){
   const I=remoteOrder?mergeSet(remote.items,remote.removedItems,local.items,local.removedItems,'id',insertInGroup):mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
   const remoteCols=(remote.colsUpd||'')>(local.colsUpd||'');
   const C=remoteCols?mergeSet(remote.columns,remote.removedColumns,local.columns,local.removedColumns,'key',(a,c)=>a.push(c)):mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{itemsUpd:(local.itemsUpd||'')>(remote.itemsUpd||'')?local.itemsUpd:remote.itemsUpd,colsUpd:remoteCols?remote.colsUpd:local.colsUpd,columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
+  return{itemsUpd:(local.itemsUpd||'')>(remote.itemsUpd||'')?local.itemsUpd:remote.itemsUpd,colsUpd:remoteCols?remote.colsUpd:local.colsUpd,columns:normalizeCols(C.act,pickE(local.groups,remote.groups)),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
@@ -280,23 +280,46 @@ A.moveStep=(level,ref,dir)=>{
   applyOrder(t,'순서 변경: '+(level==='item'?A.itemName(x):level==='sub'?ref.c1+' › '+(ref.c2||'(소구분 없음)'):ref.c1));return true;
 };
 
-/* ---------- 업체(열) 위치 이동 · 그룹 단위 이동 ---------- */
+/* ---------- 업체(열) 위치 이동 · 그룹 단위 이동 ----------
+   그룹 소속 업체는 항상 한 덩어리로 붙어 있습니다. 그룹 업체를 그룹 밖으로 옮기려 하면 그룹 전체가 함께 움직입니다. */
 const sideOf=c=>c.group==='buy'?'buy':'sell';
-function colsChanged(label){A.DB.colsUpd=new Date().toISOString();A.DB.columns=sortCols(A.DB.columns);logChange(label);commit()}
-A.moveCol=(key,tkey,pos)=>{const cs=A.DB.columns,x=A.COL.get(key),t=A.COL.get(tkey);if(!x||!t||key===tkey||sideOf(x)!==sideOf(t))return false;
-  cs.splice(cs.indexOf(x),1);let i=cs.indexOf(t);if(pos==='after')i++;cs.splice(i,0,x);colsChanged('업체 위치 이동: '+x.name);return true};
-A.moveColStep=(key,dir)=>{const x=A.COL.get(key);if(!x)return false;const side=A.DB.columns.filter(c=>sideOf(c)===sideOf(x));const i=side.indexOf(x),j=dir==='left'||dir==='up'?i-1:dir==='first'?0:dir==='last'?side.length-1:i+1;
-  if(j<0||j>=side.length||j===i)return false;const t=side[j];return A.moveCol(key,t.key,j<i?'before':'after')};
-/* 그룹 소속 업체를 한 덩어리로 옮깁니다. target: 다른 그룹 id 앞/뒤 */
-const gcols=id=>{const ks=new Set(A.groupKeys(id));return A.DB.columns.filter(c=>ks.has(c.key))};
-A.gatherGroup=id=>{const m=gcols(id);if(m.length<2)return false;const cs=A.DB.columns,first=cs.indexOf(m[0]);const rest=cs.filter(c=>!m.includes(c));const before=cs.slice(0,first).filter(c=>!m.includes(c)).length;rest.splice(before,0,...m);A.DB.columns=rest;colsChanged('그룹 모으기: '+A.colLabel('g:'+id));return true};
-A.moveGroupBlock=(id,tid,pos)=>{if(id===tid)return false;const m=gcols(id),tm=gcols(tid).filter(c=>!m.includes(c));if(!m.length||!tm.length)return false;
-  const rest=A.DB.columns.filter(c=>!m.includes(c));const at=pos==='after'?rest.indexOf(tm[tm.length-1])+1:rest.indexOf(tm[0]);rest.splice(at,0,...m);A.DB.columns=rest;colsChanged('그룹 위치 이동: '+A.colLabel('g:'+id));return true};
-A.moveGroupStep=(id,dir)=>{const m=gcols(id);if(!m.length)return false;if(!A.gatherGroup(id)){}
-  const cs=A.DB.columns,m2=gcols(id),i=cs.indexOf(m2[0]),j=cs.indexOf(m2[m2.length-1]);const n=dir==='left'?cs[i-1]:cs[j+1];if(!n||sideOf(n)!==sideOf(m2[0]))return false;
-  const og=A.DB.groups.find(g=>g.id!==id&&A.groupKeys(g.id).includes(n.key)&&A.groupKeys(g.id).every(k=>!A.groupKeys(id).includes(k)));
-  if(og)return A.moveGroupBlock(id,og.id,dir==='left'?'before':'after');
-  return A.moveCol(n.key,m2[dir==='left'?m2.length-1:0].key,dir==='left'?'after':'before')};
+const firstGroupOf=(key,groups)=>{for(const g of groups)if(g.keys.includes(key))return g.id;return null};
+A.groupOfCol=key=>firstGroupOf(key,A.DB.groups);
+function normalizeCols(cols,groups){
+  const out=[],done=new Set();
+  for(const c of cols){if(done.has(c.key))continue;const gid=firstGroupOf(c.key,groups);
+    if(!gid){out.push(c);done.add(c.key);continue}
+    for(const m of cols)if(!done.has(m.key)&&firstGroupOf(m.key,groups)===gid){out.push(m);done.add(m.key)}}
+  return sortCols(out);
+}
+A.normalizeCols=()=>{A.DB.columns=normalizeCols(A.DB.columns,A.DB.groups)};
+function colsChanged(label){A.DB.colsUpd=new Date().toISOString();A.normalizeCols();logChange(label);commit()}
+A.colsChanged=colsChanged;
+const blockOf=key=>{const g=A.groupOfCol(key);return g?A.DB.columns.filter(c=>A.groupOfCol(c.key)===g):[A.COL.get(key)]};
+/* members(덩어리)를 anchor 열의 앞/뒤로 옮김. anchor가 그룹이면 그 그룹 덩어리의 가장자리 */
+function placeBlock(members,anchorKey,pos){
+  const a=blockOf(anchorKey);const rest=A.DB.columns.filter(c=>!members.includes(c));
+  const at=pos==='after'?rest.indexOf(a[a.length-1])+1:rest.indexOf(a[0]);
+  rest.splice(at,0,...members);A.DB.columns=rest;
+}
+A.moveCol=(key,tkey,pos)=>{const x=A.COL.get(key),t=A.COL.get(tkey);if(!x||!t||key===tkey||sideOf(x)!==sideOf(t))return false;
+  const gx=A.groupOfCol(key),gt=A.groupOfCol(tkey);
+  if(gx&&gx===gt){const cs=A.DB.columns;cs.splice(cs.indexOf(x),1);let i=cs.indexOf(t);if(pos==='after')i++;cs.splice(i,0,x);colsChanged('업체 위치 이동: '+x.name);return true}
+  const members=blockOf(key);placeBlock(members,tkey,pos);colsChanged(gx?'그룹 위치 이동: '+A.colLabel('g:'+gx):'업체 위치 이동: '+x.name);return gx?'group':true};
+A.moveColStep=(key,dir)=>{const x=A.COL.get(key);if(!x)return false;const side=A.DB.columns.filter(c=>sideOf(c)===sideOf(x));
+  const gx=A.groupOfCol(key);
+  if(gx){const blk=blockOf(key),a=side.indexOf(blk[0]),b=side.indexOf(blk[blk.length-1]),i=side.indexOf(x);
+    const left=dir==='left'||dir==='up';
+    if(left?i>a:i<b){const t=side[left?i-1:i+1];return A.moveCol(key,t.key,left?'before':'after')}
+    const n=side[left?a-1:b+1];if(!n)return false;return A.moveCol(key,n.key,left?'before':'after')}
+  const i=side.indexOf(x),left=dir==='left'||dir==='up',j=dir==='first'?0:dir==='last'?side.length-1:left?i-1:i+1;
+  if(j<0||j>=side.length||j===i)return false;const t=side[j];
+  const gt=A.groupOfCol(t.key);if(gt){const blk=blockOf(t.key);return A.moveCol(key,(j<i?blk[0]:blk[blk.length-1]).key,j<i?'before':'after')}
+  return A.moveCol(key,t.key,j<i?'before':'after')};
+A.gatherGroup=id=>{const before=A.DB.columns.map(c=>c.key).join();A.normalizeCols();const same=before===A.DB.columns.map(c=>c.key).join();if(same)return false;colsChanged('그룹 모으기: '+A.colLabel('g:'+id));return true};
+A.moveGroupBlock=(id,tid,pos)=>{if(id===tid)return false;const m=A.DB.columns.filter(c=>A.groupOfCol(c.key)===id),tm=A.DB.columns.filter(c=>A.groupOfCol(c.key)===tid);if(!m.length||!tm.length)return false;
+  placeBlock(m,tm[0].key,pos);colsChanged('그룹 위치 이동: '+A.colLabel('g:'+id));return true};
+A.moveGroupStep=(id,dir)=>{const m=A.DB.columns.filter(c=>A.groupOfCol(c.key)===id);if(!m.length)return false;return !!A.moveColStep(dir==='left'?m[0].key:m[m.length-1].key,dir)};
 A.hasSort=()=>{const s=A.settings.sort||{};return !!(s.cat1||s.cat2||s.model)};
 A.setSort=(key,dir)=>{const s=Object.assign({},A.settings.sort||{});if(dir)s[key]=dir;else delete s[key];A.settings.sort=s;A.saveSettings();A.emit()};
 A.cycleSort=key=>{const c=(A.settings.sort||{})[key]||'';A.setSort(key,c===''?'asc':c==='asc'?'desc':'')};
@@ -342,7 +365,7 @@ A.renameCat=function(level,cat1,oldName,newName){
   A.DB.items=regroup(A.DB.items);logChange((level===1?'대구분':'소구분')+' 이름 변경: '+(level===2?cat1+' › ':'')+(oldName||'(소구분 없음)')+' → '+(newName||'(소구분 없음)')+' (품목 '+hit.length+'개)');commit();return hit.length;
 };
 
-A.replaceDb=(db,opts)=>{A.DB=normDb(db);A.reindex();opts=opts||{};A.dirty=opts.dirty||0;if(opts.overwrite)A.sync.overwrite=true;A.persist();A.resetUndo();A.emit()};
+A.replaceDb=(db,opts)=>{A.DB=normDb(db);A.DB.columns=normalizeCols(A.DB.columns,A.DB.groups);A.reindex();opts=opts||{};A.dirty=opts.dirty||0;if(opts.overwrite)A.sync.overwrite=true;A.persist();A.resetUndo();A.emit()};
 
 /* ---------- excel ---------- */
 let xlsxP=null;
@@ -905,13 +928,13 @@ function mountSalesSettings(el){
   return{refresh:fill};
 }
 /* ---------- 앱 버전 (sw.js 의 CACHE 번호와 같이 올립니다) ---------- */
-A.VERSION=18;A.BUILD='2026-11-25';
+A.VERSION=19;A.BUILD='2026-11-25';
 A.verText=()=>'v'+A.VERSION+' · '+A.BUILD;
 A.checkUpdate=async function(){
   try{
     const r=await fetch('sw.js?t='+Date.now(),{cache:'no-store'});const m=/danga-v(\d+)/.exec(await r.text());
     if(!m)throw new Error('버전 확인 실패');const latest=Number(m[1]);
-    if(latest>A.VERSION){A.toast('새 버전 v'+latest+'이(가) 있습니다. 적용하려면 새로고침합니다.',{action:{label:'지금 적용',fn:async()=>{try{for(const k of await caches.keys())await caches.delete(k);const rg=await navigator.serviceWorker.getRegistrations();for(const x of rg)await x.unregister()}catch(e){}location.reload()}}});return latest}
+    if(latest>A.VERSION){A.toast('새 버전 v'+latest+'이(가) 있습니다. 적용하려면 새로고침합니다.',{action:{label:'지금 적용',fn:async()=>{A.toast('업데이트를 내려받는 중...');try{await Promise.all(['core.js','tools.js','common.css','pc.html','mobile.html','index.html','sw.js','manifest.webmanifest'].map(f=>fetch(f+'?v='+latest,{cache:'reload'}).then(r=>r.ok?fetch(f,{cache:'reload'}):0).catch(()=>0)))}catch(e){}try{for(const k of await caches.keys())await caches.delete(k);const rg=await navigator.serviceWorker.getRegistrations();for(const x of rg)await x.unregister()}catch(e){}location.href=location.pathname+'?u='+Date.now()+location.hash}}});return latest}
     A.toast('최신 버전입니다 (v'+A.VERSION+').');return A.VERSION;
   }catch(e){A.toast('버전을 확인하지 못했습니다. 인터넷 연결을 확인하세요.')}
 };
