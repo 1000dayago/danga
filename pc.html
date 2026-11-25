@@ -66,7 +66,17 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .grid td.v.fut::after{content:"";position:absolute;top:0;right:0;border-top:7px solid var(--future);border-left:7px solid transparent}
 .grid tbody tr:hover td.md{color:var(--accent)}
 .grid .editable{cursor:pointer}
-.gmng{font:inherit;font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid var(--line,#ccc);border-radius:10px;background:var(--card,#fff);color:var(--accent,#2563eb);cursor:pointer}body.ro .gmng{display:none}
+/* header icon buttons */
+.ib{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;cursor:pointer;color:var(--muted);vertical-align:middle}
+.ib:hover{background:var(--accent-soft,rgba(37,99,235,.12));color:var(--accent)}
+.ib.add{margin-left:6px;border:1px solid var(--line);width:19px;height:19px}
+.ib.del:hover,.ib.del.arm{background:rgba(220,38,38,.14);color:#dc2626}
+.ib.del.arm{outline:1px solid #dc2626}
+.grid th.hc{position:sticky}.grid th.hc .ia{display:inline-flex;gap:0;margin-left:2px;opacity:0;transition:opacity .12s}
+.grid th.hc:hover .ia,.grid th.hc:focus-within .ia,.ib.arm{opacity:1}
+.grid th.hc .ia:has(.arm){opacity:1}
+@media (hover:none){.grid th.hc .ia{opacity:.7}}
+body.ro .ib{display:none}
 .grid th.editable:hover,.grid td.md.editable:hover{text-decoration:underline;color:var(--accent)}
 .grid td.neg{color:var(--up);font-weight:600}
 .grid td.low{color:var(--warn)}
@@ -98,6 +108,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
     <nav class="nav" id="nav" aria-label="메뉴"></nav>
     <div class="side-foot">
       <a href="mobile.html">핸드폰 화면 열기</a>
+      <span id="verTag" class="hint" title="눌러서 업데이트 확인" style="cursor:pointer"></span>
       <span><kbd>Ctrl</kbd>+<kbd>S</kbd> 저장 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 · <kbd>/</kbd> 검색</span>
     </div>
   </aside>
@@ -168,6 +179,7 @@ const VIEWS_ALL=[
 const VIEWS=A.readOnly?VIEWS_ALL.filter(v=>['table','history','tools','setup'].includes(v.id)):VIEWS_ALL;
 if(A.readOnly){document.body.classList.add('ro');const g=id=>VIEWS_ALL.find(v=>v.id===id);g('setup').title='영업용 설정';g('setup').desc='영업용 폴더 연결과 최신본 불러오기';g('table').desc='판매 단가를 확인합니다 (읽기 전용)';g('tools').desc='거래처별 단가표와 내보내기'}
 $('#nav').innerHTML=VIEWS.map((v,i)=>(v.id==='table'||v.id==='tools'?'<div class="sep"></div>':'')+'<a href="#'+v.id+'" data-view="'+v.id+'">'+A.icon(v.icon,18)+'<span>'+esc(v.label)+'</span></a>').join('');
+$('#verTag').textContent=A.verText();$('#verTag').addEventListener('click',()=>A.checkUpdate());
 let selCell=null,hist,anaHub,marHub,toolsHub,homeHub,manage,setup,editOrder=false;
 if(A.readOnly){$('#brand').setAttribute('href','#table');$('#tHint').textContent='칸을 누르면 변경 이력을 볼 수 있습니다. (읽기 전용)'}
 
@@ -177,10 +189,10 @@ function gridHtml(rows,cols,cellFn,opt){
   const sh=(k,l)=>{const d=(A.settings.sort||{})[k];return l+(d==='asc'?' ▲':d==='desc'?' ▼':'')};
   const so=(k,l)=>opt.edit?l:'<span data-sort="'+k+'" title="눌러서 정렬 (▲ → ▼ → 해제)" class="sortable">'+sh(k,l)+'</span>';
   let h='<thead><tr class="g"><th class="c1" rowspan="2">'+so('cat1','대구분')+'</th><th class="c2" rowspan="2">'+so('cat2','소구분')+'</th><th class="md" rowspan="2">'+so('model','MODEL')+'</th>';
-  const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="gmng" data-gman="'+g+'" title="업체 추가 · 수정 · 삭제">＋ 관리</button>';
+  const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="ib add" data-gadd="'+g+'" title="'+(g==='buy'?'매입처':'판매처')+' 추가" aria-label="추가">'+A.icon('plus',13)+'</button>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입처')+(opt.buyLabel?'':gm('buy'))+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+(opt.sellLabel?'':gm('sell'))+'</th>';
-  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
+  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly&&opt.manage;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' hc':'')+'"><span class="cn">'+esc(c.name)+'</span>'+(real?'<span class="ia"><button type="button" class="ib" data-edit-col="'+esc(c.key)+'" title="이름·구분 수정" aria-label="수정">'+A.icon('pencil',12)+'</button><button type="button" class="ib del" data-del-col="'+esc(c.key)+'" title="삭제 (한 번 더 누르면 실행)" aria-label="삭제">'+A.icon('trash',12)+'</button></span>':'')+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   const mvb=(lv,attrs)=>'<span class="mvg"><button type="button" class="mvb" data-mv="'+lv+'" data-dir="up" '+attrs+' title="위로">▲</button><button type="button" class="mvb" data-mv="'+lv+'" data-dir="down" '+attrs+' title="아래로">▼</button></span>';
   for(let r=0;r<rows.length;r++){const it=rows[r];
@@ -264,7 +276,8 @@ document.addEventListener('click',ev=>{
   const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
   const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
-  const gmn=ev.target.closest('[data-gman]');if(gmn){A.groupDialog(gmn.dataset.gman);return}
+  const gad=ev.target.closest('[data-gadd]');if(gad){A.addColDialog(gad.dataset.gadd);return}
+  const dc=ev.target.closest('[data-del-col]');if(dc){const k=dc.dataset.delCol;if(!dc.classList.contains('arm')){document.querySelectorAll('.ib.arm').forEach(x=>x.classList.remove('arm'));dc.classList.add('arm');dc.title='한 번 더 누르면 삭제';setTimeout(()=>dc.classList.remove('arm'),4000);return}const nm=(A.COL.get(k)||{}).name;A.removeColumn(k);A.toast(nm+' 업체를 삭제했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}});return}
   const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}
   const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#drawer')&&!ev.target.closest('#modal'))openCell(t.dataset.i,t.dataset.c);
 });

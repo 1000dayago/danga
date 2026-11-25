@@ -885,9 +885,22 @@ function mountSalesSettings(el){
     else if(b.dataset.act==='normal'){if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 전환';return}A.settings.salesMode=false;A.saveSettings();location.reload()}});
   return{refresh:fill};
 }
+/* ---------- 앱 버전 (sw.js 의 CACHE 번호와 같이 올립니다) ---------- */
+A.VERSION=17;A.BUILD='2026-11-25';
+A.verText=()=>'v'+A.VERSION+' · '+A.BUILD;
+A.checkUpdate=async function(){
+  try{
+    const r=await fetch('sw.js?t='+Date.now(),{cache:'no-store'});const m=/danga-v(\d+)/.exec(await r.text());
+    if(!m)throw new Error('버전 확인 실패');const latest=Number(m[1]);
+    if(latest>A.VERSION){A.toast('새 버전 v'+latest+'이(가) 있습니다. 적용하려면 새로고침합니다.',{action:{label:'지금 적용',fn:async()=>{try{for(const k of await caches.keys())await caches.delete(k);const rg=await navigator.serviceWorker.getRegistrations();for(const x of rg)await x.unregister()}catch(e){}location.reload()}}});return latest}
+    A.toast('최신 버전입니다 (v'+A.VERSION+').');return A.VERSION;
+  }catch(e){A.toast('버전을 확인하지 못했습니다. 인터넷 연결을 확인하세요.')}
+};
 A.mountSettings=function(el){
   if(A.readOnly)return mountSalesSettings(el);
+  el.addEventListener('click',ev=>{if(ev.target.closest('[data-chkver]'))A.checkUpdate()});
   el.innerHTML=
+  '<div class="section"><h2>앱 버전</h2><p class="hint">현재 <b>'+esc(A.verText())+'</b> · 새 버전이 올라왔는지 확인합니다.</p><div class="row"><button class="btn small" type="button" data-chkver>업데이트 확인</button></div></div>'+
   '<div class="section"><h2>기본 설정</h2>'+
     '<label class="field"><span>입력자 이름</span><input type="text" name="userName" placeholder="단가를 기록할 때 이력에 남습니다" autocomplete="off"></label>'+
     '<p class="hint">구글에 처음 로그인하면 계정 이름이 자동으로 들어갑니다. 바꿔도 됩니다.</p>'+
