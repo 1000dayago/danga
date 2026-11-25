@@ -66,6 +66,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .grid td.v.fut::after{content:"";position:absolute;top:0;right:0;border-top:7px solid var(--future);border-left:7px solid transparent}
 .grid tbody tr:hover td.md{color:var(--accent)}
 .grid .editable{cursor:pointer}
+.gmng{font:inherit;font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid var(--line,#ccc);border-radius:10px;background:var(--card,#fff);color:var(--accent,#2563eb);cursor:pointer}body.ro .gmng{display:none}
 .grid th.editable:hover,.grid td.md.editable:hover{text-decoration:underline;color:var(--accent)}
 .grid td.neg{color:var(--up);font-weight:600}
 .grid td.low{color:var(--warn)}
@@ -176,8 +177,9 @@ function gridHtml(rows,cols,cellFn,opt){
   const sh=(k,l)=>{const d=(A.settings.sort||{})[k];return l+(d==='asc'?' ▲':d==='desc'?' ▼':'')};
   const so=(k,l)=>opt.edit?l:'<span data-sort="'+k+'" title="눌러서 정렬 (▲ → ▼ → 해제)" class="sortable">'+sh(k,l)+'</span>';
   let h='<thead><tr class="g"><th class="c1" rowspan="2">'+so('cat1','대구분')+'</th><th class="c2" rowspan="2">'+so('cat2','소구분')+'</th><th class="md" rowspan="2">'+so('model','MODEL')+'</th>';
-  if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+'</th>';
-  if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+'</th>';
+  const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="gmng" data-gman="'+g+'" title="업체 추가 · 수정 · 삭제">＋ 관리</button>';
+  if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+(opt.buyLabel?'':gm('buy'))+'</th>';
+  if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+(opt.sellLabel?'':gm('sell'))+'</th>';
   h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   const mvb=(lv,attrs)=>'<span class="mvg"><button type="button" class="mvb" data-mv="'+lv+'" data-dir="up" '+attrs+' title="위로">▲</button><button type="button" class="mvb" data-mv="'+lv+'" data-dir="down" '+attrs+' title="아래로">▼</button></span>';
@@ -214,7 +216,7 @@ function renderTable(){
     let title=c.name+' · '+A.itemName(it);if(e&&!e.base){title+='\n'+e.from+' 변경: '+A.eText(A.prevOf(e))+' → '+A.eText(e)+(e.reason?'\n사유: '+e.reason:'')}else if(e&&e.t)title+='\n'+e.t;
     const kn=A.krwNote(e,d);if(kn)title+='\n'+kn;
     return '<td class="'+cls+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" title="'+esc(title)+'">'+A.eHtml(e,d)+'</td>';
-  },{edit:editOrder});
+  },{edit:editOrder,manage:true});
   $('#brandSub').textContent=d+' 기준';
 }
 function syncOrderUi(){const hs=A.hasSort();$('#btnOrder').textContent=editOrder?'순서 바꾸기 끝내기':'순서 바꾸기';$('#btnOrder').classList.toggle('primary',editOrder);$('#orderBanner').hidden=!editOrder;$('#tFilters').classList.toggle('dim',editOrder);$('#btnSortSave').hidden=!hs||editOrder;$('#btnSortClear').hidden=!hs||editOrder}
@@ -261,6 +263,7 @@ document.addEventListener('click',ev=>{
   const pc=ev.target.closest('[data-pincat]');if(pc){A.togglePinCat(pc.dataset.pincat);return}
   const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
+  const gmn=ev.target.closest('[data-gman]');if(gmn){A.groupDialog(gmn.dataset.gman);return}
   const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}
   const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#drawer')&&!ev.target.closest('#modal'))openCell(t.dataset.i,t.dataset.c);
 });

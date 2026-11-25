@@ -1013,8 +1013,23 @@ A.addItemDialog=function(preset){
   fillC2();
   if(f.c1sel.value===NEW)f.c1new.focus();else f.models.focus();
 };
-A.addColDialog=function(){
-  openModal('<form><h2>거래처 추가</h2><label class="field"><span>거래처 이름</span><input type="text" name="nm" required></label><label class="field"><span>구분</span><select name="g"><option value="sell">판매처</option><option value="buy">매입처</option></select></label><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">추가</button></div></form>',f=>{
+
+/* 매입처/판매처 묶음 관리: 업체 목록 · 추가 · 수정 · 삭제 */
+A.groupDialog=function(g){
+  const buy=g==='buy',label=buy?'매입처':'판매처',t=today();
+  const list=()=>A.DB.columns.filter(c=>(c.group==='buy')===buy);
+  const body=()=>{const cs=list();return '<form class="grpdlg"><h2>'+label+' 관리</h2><p class="hint">업체 이름을 고치거나 삭제하고, 새 업체를 추가합니다. 삭제해도 과거 단가 기록은 보관되고 관리 화면에서 복원할 수 있습니다.</p><div class="tbl-wrap"><table class="list"><tbody>'+
+    (cs.length?cs.map(c=>{const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,c.key,t))).length;return '<tr><td>'+esc(c.name)+'</td><td class="r num hint">'+n+'품목</td><td class="r"><button class="btn small" type="button" data-e="'+esc(c.key)+'">수정</button> <button class="btn small danger" type="button" data-d="'+esc(c.key)+'">삭제</button></td></tr>'}).join(''):'<tr><td class="hint">'+label+'가 없습니다.</td></tr>')+
+    '</tbody></table></div><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button><button class="btn primary" type="button" data-add>'+label+' 추가</button></div></form>'};
+  const show=()=>{openModal(body(),()=>{});const f=document.querySelector('#modal form.grpdlg');
+    f.addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b)return;
+      if(b.hasAttribute('data-add')){A.closeModal();A.addColDialog(g);return}
+      if(b.dataset.e){A.closeModal();A.editColDialog(b.dataset.e);return}
+      if(b.dataset.d){armBtn(b,'한 번 더 누르면 삭제',()=>{const nm=(A.COL.get(b.dataset.d)||{}).name;A.removeColumn(b.dataset.d);A.toast(nm+' 업체를 삭제했습니다. 관리 화면에서 복원할 수 있습니다.');show()})}})};
+  show();
+};
+A.addColDialog=function(preset){
+  openModal('<form><h2>'+(preset==='buy'?'매입처 추가':preset==='sell'?'판매처 추가':'거래처 추가')+'</h2><label class="field"><span>거래처 이름</span><input type="text" name="nm" required></label><label class="field"><span>구분</span><select name="g"><option value="sell"'+(preset==='buy'?'':' selected')+'>판매처</option><option value="buy"'+(preset==='buy'?' selected':'')+'>매입처</option></select></label><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">추가</button></div></form>',f=>{
     const name=f.nm.value.trim();if(A.DB.columns.some(c=>c.name===name)){f.querySelector('[data-err]').textContent='같은 이름의 거래처가 있습니다.';return false}
     A.addColumn({name,group:f.g.value});A.toast(name+' 거래처를 추가했습니다.');
   });
@@ -1224,6 +1239,7 @@ A.mountManage=function(el){
       else if(b.dataset.mk)A.renameCatDialog(Number(b.dataset.mk),b.dataset.c1,b.dataset.mk==='2'?b.dataset.c2:b.dataset.c1);
       else if(b.dataset.rc){A.restoreColumn(b.dataset.rc);A.toast('거래처를 복원했습니다.')}
       else if(b.dataset.ri){A.restoreItem(b.dataset.ri);A.toast('품목을 복원했습니다.')}
+      else if(b.dataset.gman)A.groupDialog(b.dataset.gman);
       else if(b.hasAttribute('data-addcol'))A.addColDialog();
     }catch(e){A.toast(e.message)}
   });
