@@ -643,21 +643,75 @@ A.mountSettings=function(el){
 };
 
 /* 품목 · 거래처 추가 */
-function openModal(html,onSubmit){
+function openModal(html,onSubmit,size){
   let m=$('#modal');if(!m){m=document.createElement('div');m.id='modal';m.className='modal';m.innerHTML='<div class="modal-card" role="dialog" aria-modal="true"></div>';document.body.appendChild(m);m.addEventListener('click',ev=>{if(ev.target===m)A.closeModal()})}
-  const card=m.firstChild;card.innerHTML=html;m.hidden=false;
+  const card=m.firstChild;card.className='modal-card'+(size?' '+size:'');card.innerHTML=html;m.hidden=false;
   const f=card.querySelector('form');f.addEventListener('submit',ev=>{ev.preventDefault();if(onSubmit(f)!==false)A.closeModal()});
   card.querySelector('[data-cancel]').addEventListener('click',A.closeModal);const first=f.querySelector('input,select');if(first)first.focus();
 }
 A.closeModal=()=>{const m=$('#modal');if(m){m.hidden=true;m.firstChild.innerHTML=''}};
-A.addItemDialog=function(){
-  openModal('<form><h2>품목 추가</h2><datalist id="dl1">'+A.cats().map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist><datalist id="dl2">'+[...new Set(A.DB.items.map(i=>i.cat2).filter(Boolean))].map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'+
-    '<label class="field"><span>대구분</span><input type="text" name="c1" list="dl1" required></label><label class="field"><span>소구분 (없으면 비움)</span><input type="text" name="c2" list="dl2"></label><label class="field"><span>MODEL</span><input type="text" name="md" required></label>'+
-    '<p class="hint">같은 대구분·소구분의 마지막 줄 아래에 추가됩니다. 단가는 추가한 뒤 입력하세요.</p><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">추가</button></div></form>',f=>{
-    const it={cat1:f.c1.value.trim(),cat2:f.c2.value.trim(),model:f.md.value.trim()};
-    if(A.DB.items.some(x=>x.cat1===it.cat1&&x.cat2===it.cat2&&x.model===it.model)){f.querySelector('[data-err]').textContent='같은 품목이 이미 있습니다.';return false}
-    A.addItem(it);A.toast(it.model+' 품목을 추가했습니다.');
-  });
+A.addItemDialog=function(preset){
+  preset=preset||{};
+  const NEW='__new__';
+  const opt=(v,l,sel)=>'<option value="'+esc(v)+'"'+(sel?' selected':'')+'>'+esc(l)+'</option>';
+  const buys=A.DB.columns.filter(c=>c.group==='buy'),sells=A.DB.columns.filter(c=>c.group!=='buy');
+  const priceRow=c=>'<tr><td>'+esc(c.name)+'</td><td><input type="text" inputmode="decimal" data-pc="'+esc(c.key)+'" placeholder="-" style="text-align:right"></td><td><select data-pcur="'+esc(c.key)+'"><option value="KRW">원</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="USD">USD</option></select></td></tr>';
+  openModal('<form class="additem" autocomplete="off"><h2>품목 추가</h2>'+
+    '<div class="form"><label class="field"><span>대구분</span><select name="c1sel">'+A.cats().map(c=>opt(c,c,c===preset.cat1)).join('')+opt(NEW,'+ 새 대구분',!A.cats().length)+'</select></label>'+
+    '<label class="field" data-new1 hidden><span>새 대구분 이름</span><input type="text" name="c1new"></label>'+
+    '<label class="field"><span>소구분</span><select name="c2sel"></select></label>'+
+    '<label class="field" data-new2 hidden><span>새 소구분 이름</span><input type="text" name="c2new"></label>'+
+    '<label class="field full"><span>모델 (한 줄에 하나, 여러 개 가능)</span><textarea name="models" rows="3" placeholder="예:\n102 S 0600\n102 S 0610"></textarea></label></div>'+
+    '<div class="section" style="padding:10px"><div class="row" style="justify-content:space-between"><h2>단가 (선택)</h2><label class="field" style="min-width:170px"><span>비슷한 품목 단가 복사</span><select name="copy"></select></label></div>'+
+    '<div class="form"><label class="field"><span>적용일</span><input type="date" name="from"></label><label class="field"><span>사유</span><select name="reason">'+REASONS.map(r=>opt(r,r,r==='신규 거래')).join('')+'</select></label></div>'+
+    '<p class="hint">비워 둔 거래처는 거래 없음으로 남습니다. 모델을 여러 개 적으면 같은 단가가 모두에 들어갑니다.</p>'+
+    '<div class="tbl-wrap"><table class="list pricein"><thead><tr><th>거래처</th><th class="r">단가</th><th>통화</th></tr></thead><tbody>'+
+    (buys.length?'<tr><td colspan="3" class="hint"><b>매입처</b></td></tr>'+buys.map(priceRow).join(''):'')+
+    (sells.length?'<tr><td colspan="3" class="hint"><b>판매처</b></td></tr>'+sells.map(priceRow).join(''):'')+
+    '</tbody></table></div></div>'+
+    '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">추가</button></div></form>',f=>{
+    const err=m=>{f.querySelector('[data-err]').textContent=m;return false};
+    const c1=f.c1sel.value===NEW?f.c1new.value.trim():f.c1sel.value;
+    const c2=f.c2sel.value===NEW?f.c2new.value.trim():f.c2sel.value;
+    if(!c1)return err('대구분을 고르거나 새 이름을 입력하세요.');
+    if(f.c2sel.value===NEW&&!c2)return err('새 소구분 이름을 입력하세요.');
+    let models=f.models.value.split(/\n/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
+    models=[...new Set(models)];
+    if(!models.length){if(!c2)return err('모델을 입력하세요. (모델 없이 추가하려면 소구분이 있어야 합니다)');models=['']}
+    const dup=models.filter(m=>A.DB.items.some(x=>x.cat1===c1&&x.cat2===c2&&x.model===m));
+    if(dup.length)return err('이미 있는 품목입니다: '+(dup.join(', ')||'(모델 없음)'));
+    const prices=[];let bad=null;
+    f.querySelectorAll('[data-pc]').forEach(inp=>{const raw=inp.value.trim().replace(/,/g,'');if(!raw)return;const k=inp.dataset.pc;
+      if(raw==='-'){prices.push({col:k,v:null,t:'-',cur:'KRW'});return}const v=Number(raw);if(isNaN(v)){bad=A.COL.get(k).name;return}
+      prices.push({col:k,v,t:null,cur:f.querySelector('[data-pcur="'+k+'"]').value})});
+    if(bad)return err(bad+' 단가를 숫자로 입력하세요.');
+    if(prices.length&&!f.from.value)return err('적용일을 입력하세요.');
+    let last=null;
+    for(const m of models){const it=A.addItem({cat1:c1,cat2:c2,model:m});last=it;
+      for(const pr of prices)A.addEntry({item:it.id,col:pr.col,v:pr.v,t:pr.t,cur:pr.cur,from:f.from.value,reason:f.reason.value,note:''})}
+    A.toast((models.length>1?models.length+'개 품목':(models[0]||c2)+' 품목')+'을 추가했습니다'+(prices.length?' (단가 '+prices.length+'곳)':'')+'. 드라이브 저장 전입니다.');
+    if(preset.onDone)preset.onDone(last,models.length);
+  },'wide');
+  const f=document.querySelector('#modal form.additem');
+  f.from.value=preset.date||today();
+  const fillC2=()=>{
+    const isNew1=f.c1sel.value===NEW;f.querySelector('[data-new1]').hidden=!isNew1;
+    const c2s=isNew1?[]:[...new Set(A.DB.items.filter(i=>i.cat1===f.c1sel.value).map(i=>i.cat2))];
+    const want=preset.cat2!=null&&c2s.includes(preset.cat2)?preset.cat2:(c2s[0]!=null?c2s[0]:NEW);
+    f.c2sel.innerHTML=c2s.map(c=>opt(c,c||'(소구분 없음)',c===want)).join('')+opt(NEW,'+ 새 소구분',want===NEW)+(c2s.includes('')?'':opt('','(소구분 없음)',false));
+    fillC2b();
+  };
+  const fillC2b=()=>{
+    f.querySelector('[data-new2]').hidden=f.c2sel.value!==NEW;
+    const sib=f.c1sel.value===NEW?[]:A.DB.items.filter(i=>i.cat1===f.c1sel.value&&(f.c2sel.value===NEW||i.cat2===f.c2sel.value));
+    f.copy.innerHTML='<option value="">복사 안 함</option>'+sib.map(i=>opt(i.id,A.itemName(i),false)).join('');
+  };
+  f.c1sel.addEventListener('change',()=>{preset.cat2=null;fillC2()});
+  f.c2sel.addEventListener('change',fillC2b);
+  f.copy.addEventListener('change',()=>{const id=f.copy.value;const d=f.from.value||today();
+    f.querySelectorAll('[data-pc]').forEach(inp=>{const k=inp.dataset.pc;const e=id?A.entryAt(id,k,d):null;inp.value=e?(isNum(e)?String(e.v):(e.t||'')):'';f.querySelector('[data-pcur="'+k+'"]').value=e&&e.cur?e.cur:'KRW'})});
+  fillC2();
+  if(f.c1sel.value===NEW)f.c1new.focus();else f.models.focus();
 };
 A.addColDialog=function(){
   openModal('<form><h2>거래처 추가</h2><label class="field"><span>거래처 이름</span><input type="text" name="nm" required></label><label class="field"><span>구분</span><select name="g"><option value="sell">판매처</option><option value="buy">매입처</option></select></label><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">추가</button></div></form>',f=>{

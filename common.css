@@ -140,3 +140,11 @@ table.list{border-collapse:collapse;width:100%;font-size:13px}
   #print .pr-note{font-size:7pt;color:#555;margin-top:6px}
   #print .empty-row{text-align:center;color:#666;padding:12px}
 }
+
+/* add-item dialog */
+.modal-card.wide{width:min(640px,100%)}
+.additem textarea{border:1px solid var(--line-strong);background:var(--surface);border-radius:6px;padding:7px 9px;width:100%;font-family:var(--font-num);resize:vertical}
+.pricein td{padding:4px 6px;vertical-align:middle}
+.pricein input{width:110px;margin-left:auto;display:block}
+.pricein select{width:80px}
+@media (max-width:520px){.additem .form{grid-template-columns:1fr}.pricein input{width:90px}}
