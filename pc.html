@@ -124,7 +124,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
           <label class="check"><input type="checkbox" id="chkPinned"> 고정한 것만 보기</label>
         </div>
         <div class="toolbar">
-          <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span>외화는 통화 표시(예: <span class="cur">EUR</span>), 원화 환산 값은 점선 밑줄</span></div>
+          <div class="legend"><span><i class="sw buy"></i>매입처</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span>외화는 통화 표시(예: <span class="cur">EUR</span>), 원화 환산 값은 점선 밑줄</span></div>
           <div class="row" style="margin-left:auto"><button class="btn small rw" type="button" id="btnOrder">순서 바꾸기</button><button class="btn small rw" type="button" id="btnSortSave" hidden>정렬을 순서로 저장</button><button class="btn small" type="button" id="btnSortClear" hidden>정렬 해제</button><button class="btn small rw" type="button" id="btnAddItem">+ 품목 추가</button><button class="btn small rw" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small rw" type="button" id="btnPct">비율 인상 · 인하</button><button class="btn small" type="button" id="btnExport">내보내기</button></div>
         </div>
         <p class="hint" id="tHint" style="margin:-6px 0 0">칸을 누르면 이력과 단가 변경, MODEL이나 거래처 이름을 누르면 수정 · 삭제할 수 있습니다.</p>
@@ -178,7 +178,7 @@ function gridHtml(rows,cols,cellFn,opt){
   const so=(k,l)=>opt.edit?l:'<span data-sort="'+k+'" title="눌러서 정렬 (▲ → ▼ → 해제)" class="sortable">'+sh(k,l)+'</span>';
   let h='<thead><tr class="g"><th class="c1" rowspan="2">'+so('cat1','대구분')+'</th><th class="c2" rowspan="2">'+so('cat2','소구분')+'</th><th class="md" rowspan="2">'+so('model','MODEL')+'</th>';
   const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="gmng" data-gman="'+g+'" title="업체 추가 · 수정 · 삭제">＋ 관리</button>';
-  if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+(opt.buyLabel?'':gm('buy'))+'</th>';
+  if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입처')+(opt.buyLabel?'':gm('buy'))+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+(opt.sellLabel?'':gm('sell'))+'</th>';
   h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';

@@ -198,7 +198,7 @@ function renderItem(){
   el.innerHTML='<div class="detail-head"><div class="row" style="justify-content:space-between;align-items:flex-start"><span class="hint">'+esc(A.itemLabel(it))+'</span><div class="row"><button class="btn small" type="button" data-fav-toggle aria-pressed="'+A.isFav(it.id)+'">'+(A.isFav(it.id)?'★ 고정됨':'☆ 맨 위에 고정')+'</button><button class="btn small rw" type="button" data-edititem>수정 · 삭제</button></div></div><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
     (notice?'<div class="status-line err">'+esc(notice)+'</div>':'')+
     '<div class="row"><label class="check"><input type="checkbox" id="optAll"'+(showAll?' checked':'')+'> 거래 없는 곳도 보기</label><label class="check rw"><input type="checkbox" id="optMg"'+(showMargin?' checked':'')+'> 마진 보기</label></div>'+
-    '<div class="grp">매입가 <button class="btn small rw" type="button" data-gman="buy" style="float:right">업체 관리</button></div><div class="items">'+(buy||'<div class="prow none"><span class="n hint">매입가 없음</span></div>')+'</div>'+
+    '<div class="grp">매입처 <button class="btn small rw" type="button" data-gman="buy" style="float:right">업체 관리</button></div><div class="items">'+(buy||'<div class="prow none"><span class="n hint">매입가 없음</span></div>')+'</div>'+
     '<div class="grp">판매가 <button class="btn small rw" type="button" data-gman="sell" style="float:right">업체 관리</button></div><div class="items">'+(sell||'<div class="prow none"><span class="n hint">판매처 없음 · "거래 없는 곳도 보기"를 켜고 추가하세요</span></div>')+'</div>';
   $('#optAll').addEventListener('change',e=>{showAll=e.target.checked;renderItem()});
   $('#optMg').addEventListener('change',e=>{showMargin=e.target.checked;renderItem()});
