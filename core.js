@@ -55,7 +55,8 @@ A.touch=(n,label)=>{
   if(batching){if(!batchPushed){push(batchLabel);batchPushed=true}}else push(label);
   A.dirty+=n||1;A.persist();prevStr=snap();A.emit();
 };
-A.batch=(label,fn)=>{batching++;batchLabel=label;batchPushed=false;try{return fn()}finally{batching--}};
+let batchTag=null;
+A.batch=(label,fn)=>{batching++;batchLabel=label;batchPushed=false;const mine=!batchTag;if(mine)batchTag={id:uid('bt'),label};try{return fn()}finally{batching--;if(mine)batchTag=null}};
 A.undo=()=>{const e=A.undoStack.pop();if(!e)return null;A.DB=normDb(JSON.parse(e.str));A.reindex();A.dirty=e.dirty;A.persist();prevStr=e.str;A.emit();document.dispatchEvent(new Event('danga:undo'));return e.label};
 A.resetUndo();
 A.isEmpty=()=>!A.DB.items.length;
@@ -150,7 +151,21 @@ A.marginOf=(it,c,d,basis)=>{
 };
 
 /* ---------- mutations ---------- */
-A.addEntry=e=>{e.id=uid('e');e.at=nowIso();if(A.settings.userName)e.by=A.settings.userName;A.DB.entries.push(e);A.reindex();const it=A.ITEM.get(e.item),c=A.COL.get(e.col);A.touch(1,'단가 기록: '+(it?A.itemName(it):'')+(c?' · '+c.name:''))};
+A.addEntry=e=>{e.id=uid('e');e.at=nowIso();if(A.settings.userName)e.by=A.settings.userName;if(batchTag){e.batch=batchTag.id;e.bl=batchTag.label}A.DB.entries.push(e);A.reindex();const it=A.ITEM.get(e.item),c=A.COL.get(e.col);A.touch(1,'단가 기록: '+(it?A.itemName(it):'')+(c?' · '+c.name:''))};
+A.updateEntry=function(id,patch,opts){
+  const e=A.DB.entries.find(x=>x.id===id);if(!e||e.base)return false;
+  const lab=x=>A.eText({v:x.v,t:x.t,cur:x.cur}),diffs=[];
+  const nv={v:patch.v!==undefined?patch.v:e.v,t:patch.t!==undefined?patch.t:e.t,cur:patch.cur||e.cur||'KRW'};
+  const nFrom=patch.from||e.from,nReason=patch.reason!=null?patch.reason:(e.reason||''),nNote=patch.note!=null?patch.note:(e.note||'');
+  if(nFrom!==e.from)diffs.push('적용일 '+e.from+' → '+nFrom);
+  if(JSON.stringify([nv.v,nv.t,nv.cur])!==JSON.stringify([e.v,e.t,e.cur||'KRW']))diffs.push('단가 '+lab(e)+' → '+lab(nv));
+  if(nReason!==(e.reason||''))diffs.push('사유 '+(e.reason||'없음')+' → '+(nReason||'없음'));
+  if(nNote!==(e.note||''))diffs.push('비고 수정');
+  if(!diffs.length)return false;
+  Object.assign(e,{from:nFrom,v:nv.v,t:nv.t,cur:nv.cur,reason:nReason,note:nNote});
+  e.upd=new Date().toISOString();(e.edits=e.edits||[]).push({at:nowIso(),by:A.settings.userName||'',text:diffs.join(', ')});
+  A.reindex();A.touch(1,(opts&&opts.label)||'기록 수정');return true;
+};
 A.deleteEntry=id=>{A.DB.entries=A.DB.entries.filter(x=>x.id!==id);A.DB.deleted.push(id);A.reindex();A.touch(1,'기록 삭제')};
 A.addItem=it=>{
   it.id=uid('i');let idx=-1;
@@ -175,6 +190,7 @@ A.mergeDb=function(local,remote){
   local=normDb(clone(local));remote=normDb(clone(remote));
   const tomb=new Set([...local.deleted,...remote.deleted]);
   const byId=(mine,theirs)=>{const m=new Map();for(const o of theirs)m.set(o.id,o);for(const o of mine)m.set(o.id,o);return [...m.values()].filter(o=>!tomb.has(o.id))};
+  const pickE=(mine,theirs)=>{const m=new Map();for(const o of theirs)m.set(o.id,o);for(const o of mine){const x=m.get(o.id);m.set(o.id,!x||(o.upd||'')>=(x.upd||'')?o:x)}return [...m.values()].filter(o=>!tomb.has(o.id))};
   const newer=(a,b)=>!a?b:!b?a:((b.upd||'')>(a.upd||'')?b:a);
   const pool=(act,rem,key)=>{const m=new Map();for(const o of act){delete o.removed;m.set(o[key],o)}for(const o of rem){o.removed=true;m.set(o[key],o)}return m};
   const mergeSet=(la,lr,ra,rr,key,place)=>{
@@ -187,7 +203,7 @@ A.mergeDb=function(local,remote){
   };
   const I=mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
   const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{columns:sortCols(C.act),items:regroup(I.act),entries:byId(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])]};
+  return{columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])]};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
@@ -550,7 +566,7 @@ A.renderCell=function(el,i,c,opts){
   if(!h.length)b+='<p class="hint">기록이 없습니다. 아래에서 첫 단가를 입력하세요.</p>';
   else{b+='<ol class="timeline">';for(const e of [...h].reverse()){const p=A.prevOf(e);
     b+='<li class="'+(e.from>t?'future':'')+'"><span class="d">'+esc(e.from)+(e.from>t?'<br>적용 예정':'')+'</span><span><span class="val">'+esc(A.eText(e))+'</span> '+(p?'<span class="hint">← '+esc(A.eText(p))+'</span> ':'')+A.deltaHtml(A.delta(p,e))+'</span>'+
-    '<span class="meta">'+(e.base?'<span class="tag base">기준 단가</span>':'')+(e.reason&&!e.base?'<span class="tag">'+esc(e.reason)+'</span>':'')+(e.note?'<span>'+esc(e.note)+'</span>':'')+'<span>입력 '+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</span>'+(e.base?'':'<button class="btn small danger" type="button" data-del="'+esc(e.id)+'">삭제</button>')+'</span></li>'}
+    '<span class="meta">'+(e.base?'<span class="tag base">기준 단가</span>':'')+(e.reason&&!e.base?'<span class="tag">'+esc(e.reason)+'</span>':'')+(e.note?'<span>'+esc(e.note)+'</span>':'')+'<span>입력 '+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</span>'+(e.edits&&e.edits.length?'<span class="tag" title="'+esc(e.edits.map(x=>shortDT(x.at)+(x.by?' '+x.by:'')+': '+x.text).join('\n'))+'">수정됨</span><span class="hint">'+esc(e.edits[e.edits.length-1].text)+'</span>':'')+(e.base?'':'<button class="btn small" type="button" data-edit="'+esc(e.id)+'">수정</button><button class="btn small danger" type="button" data-del="'+esc(e.id)+'">삭제</button>')+'</span></li>'}
     b+='</ol>'}
   b+='</div><form class="section" autocomplete="off" data-cellform><h2>단가 변경 기록</h2><div class="form">'+
     '<label class="field"><span>새 단가</span><input type="text" inputmode="decimal" name="v" placeholder="숫자"></label>'+
@@ -580,6 +596,30 @@ A.renderCell=function(el,i,c,opts){
   el.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
     if(btn.dataset.armed){A.deleteEntry(btn.dataset.del);A.toast('기록을 삭제했습니다.');A.renderCell(el,i,c,opts)}
     else{btn.dataset.armed='1';btn.textContent='한 번 더 누르면 삭제';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.textContent='삭제'}},4000)}
+  }));
+  el.querySelectorAll('[data-edit]').forEach(btn=>btn.addEventListener('click',()=>{
+    const e=A.DB.entries.find(x=>x.id===btn.dataset.edit);if(!e)return;
+    const li=btn.closest('li');li.classList.add('editing');
+    li.innerHTML='<form class="editentry" autocomplete="off" style="grid-column:1/-1"><b>기록 수정 · '+esc(e.from)+'</b><div class="form">'+
+      '<label class="field"><span>적용일</span><input type="date" name="from" value="'+esc(e.from)+'" required></label>'+
+      '<label class="field"><span>단가</span><input type="text" inputmode="decimal" name="v" value="'+esc(isNum(e)?String(e.v):(e.t||''))+'"></label>'+
+      '<label class="field"><span>통화</span><select name="cur" class="cursel">'+A.curOptions(e.cur||'KRW')+'</select></label>'+
+      '<label class="field"><span>사유</span><select name="reason">'+(e.reason&&!REASONS.includes(e.reason)?'<option>'+esc(e.reason)+'</option>':'')+(e.reason?'':'<option value="">(없음)</option>')+REASONS.map(r=>'<option'+(r===e.reason?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select></label>'+
+      '<label class="field full"><span>비고</span><input type="text" name="note" value="'+esc(e.note||'')+'"></label>'+
+      '<label class="check full"><input type="checkbox" name="none"'+((!isNum(e)&&!e.t)?' checked':'')+'> 거래 없음 (칸 비우기)</label></div>'+
+      '<p class="hint up" data-emsg></p><div class="row-end"><button class="btn" type="button" data-ecancel>취소</button><button class="btn primary" type="submit">수정 저장</button></div></form>';
+    const f=li.querySelector('form'),msg=m=>{f.querySelector('[data-emsg]').textContent=m};
+    A.setCur(f.cur,e.cur||'KRW');f.from.focus();
+    f.querySelector('[data-ecancel]').addEventListener('click',()=>A.renderCell(el,i,c,opts));
+    f.addEventListener('submit',ev=>{ev.preventDefault();
+      const none=f.none.checked,raw=f.v.value.trim().replace(/,/g,''),from=f.from.value;
+      if(!from){msg('적용일을 입력하세요.');return}
+      let v=null,tx=null;
+      if(!none){if(raw==='-')tx='-';else{v=Number(raw);if(raw===''||isNaN(v)){msg('단가를 숫자로 입력하세요. 거래를 끊는 기록이면 "거래 없음"을 체크하세요.');return}}}
+      if(!A.updateEntry(e.id,{from,v,t:tx,cur:f.cur.value,reason:f.reason.value,note:f.note.value.trim()})){msg('바뀐 내용이 없습니다.');return}
+      A.toast('기록을 수정했습니다.',{action:{label:'되돌리기',fn:()=>{A.undo();A.renderCell(el,i,c,opts)}}});
+      A.renderCell(el,i,c,Object.assign({},opts,{notice:A.itemMarginNotice(i,from)}));
+    });
   }));
 };
 
@@ -622,10 +662,10 @@ A.mountHistory=function(el,opts){
     lastDesc='조건: '+act.join(' · ')+' · '+rows.length+'건 (인상 '+up+', 인하 '+down+')';
     const shown=rows.slice(0,600);
     if(opts.cards){
-      out.innerHTML='<div class="cards">'+shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<div class="card click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><div class="top"><span class="model">'+esc(A.itemName(it))+'</span><span class="num hint">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</span></div><div class="sub">'+esc(c.name)+' · '+esc(A.itemLabel(it))+'</div><div class="vals">'+(p?'<span class="hint">'+esc(A.eText(p))+' →</span>':'')+'<b>'+esc(A.eText(e))+'</b>'+A.deltaHtml(x)+'</div><div class="sub">'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+(e.note?' '+esc(e.note):'')+(e.by?' · '+esc(e.by):'')+'</div></div>'}).join('')+'</div>';
+      out.innerHTML='<div class="cards">'+shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<div class="card click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><div class="top"><span class="model">'+esc(A.itemName(it))+'</span><span class="num hint">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</span></div><div class="sub">'+esc(c.name)+' · '+esc(A.itemLabel(it))+'</div><div class="vals">'+(p?'<span class="hint">'+esc(A.eText(p))+' →</span>':'')+'<b>'+esc(A.eText(e))+'</b>'+A.deltaHtml(x)+'</div><div class="sub">'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>'+(e.edits&&e.edits.length?' <span class="tag" title="'+esc(e.edits.map(x=>x.text).join(' / '))+'">수정됨</span>':''))+(e.note?' '+esc(e.note):'')+(e.by?' · '+esc(e.by):'')+'</div></div>'}).join('')+'</div>';
     }else{
       out.innerHTML='<div class="tbl-wrap section" style="padding:6px"><table class="list"><thead><tr><th>적용일</th><th>구분</th><th>모델</th><th>거래처</th><th class="r">이전</th><th class="r">변경</th><th class="r">증감</th><th>사유</th><th>비고</th><th>입력</th></tr></thead><tbody>'+
-      shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<tr class="click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><td class="num">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</td><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+(p?esc(A.eText(p)):'<span class="hint">-</span>')+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(x)+'</td><td>'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+'</td><td>'+esc(e.note||'')+'</td><td class="num hint">'+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</td></tr>'}).join('')+'</tbody></table></div>';
+      shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<tr class="click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><td class="num">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</td><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+(p?esc(A.eText(p)):'<span class="hint">-</span>')+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(x)+'</td><td>'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>'+(e.edits&&e.edits.length?' <span class="tag" title="'+esc(e.edits.map(x=>x.text).join(' / '))+'">수정됨</span>':''))+'</td><td>'+esc(e.note||'')+'</td><td class="num hint">'+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</td></tr>'}).join('')+'</tbody></table></div>';
     }
     if(rows.length>600)out.insertAdjacentHTML('beforeend','<p class="hint">처음 600건만 표시합니다. 조건을 좁혀 주세요.</p>');
   }

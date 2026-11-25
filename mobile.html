@@ -244,7 +244,7 @@ let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy(
 /* ---------- boot ---------- */
 $('#date').value=today();$('#dateNote').textContent='(오늘)';
 homeHub=A.mountHome($('#homeBox'),ctx);
-hist=A.mountHistory($('#v-history'),{cards:true});
+hist=A.mountTabs($('#v-history'),[{id:'list',label:'변경 내역',mount:el=>A.mountHistory(el,{cards:true})},{id:'batch',label:'일괄 변경 묶음',mount:el=>A.mountBatches(el)}],'hist');
 anaHub=A.mountTabs($('#anaBox'),[{id:'diff',label:'변경 비교',mount:el=>A.mountAnalysis(el,{cards:true})},{id:'compare',label:'거래처 비교',mount:el=>A.mountCompare(el)},{id:'upcoming',label:'예정 단가',mount:el=>A.mountUpcoming(el)}],'ana');
 moreHub=A.mountTabs($('#moreBox'),[
   {id:'tools',label:'도구',mount:el=>A.mountTools(el,ctx)},

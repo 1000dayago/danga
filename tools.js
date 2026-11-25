@@ -148,7 +148,7 @@ A.pctDialog=function(opts){
     const from=f.from.value;if(!from)return err('적용일을 입력하세요.');
     const pct=Number(f.pct.value),note=f.note.value.trim()||('비율 일괄 변경 '+(pct>0?'+':'')+pct+'%');
     const before=A.alerts(from).neg.length;
-    A.batch('비율 일괄 변경',()=>{for(const i of picked){const c=list[i];A.addEntry({item:c.it.id,col:c.col.key,v:c.next.v,t:null,cur:c.next.cur,from,reason:f.reason.value,note})}});
+    A.batch('비율 일괄 변경 '+(pct>0?'+':'')+pct+'%',()=>{for(const i of picked){const c=list[i];A.addEntry({item:c.it.id,col:c.col.key,v:c.next.v,t:null,cur:c.next.cur,from,reason:f.reason.value,note})}});
     const after=A.alerts(from).neg.length;
     A.toast(picked.length+'칸을 '+(pct>0?'+':'')+pct+'% 반영했습니다.'+(after>before?' 역마진 칸이 '+(after-before)+'개 늘었습니다.':''),{action:{label:'되돌리기',fn:()=>A.undo()}});
   },'wide');
@@ -293,6 +293,61 @@ A.mountHome=function(el,ctx){
     const h=ev.target.closest('[data-home]');if(h){if(h.dataset.home==='settings')ctx.goto('settings');else A.pull(true).then(ch=>{if(ch)A.toast('드라이브 최신본을 불러왔습니다.')});return}
   });
   refresh();return{refresh};
+};
+
+/* ---------- 일괄 변경 묶음: 한 번에 들어간 기록을 묶어서 보고, 적용일 수정 / 삭제 ---------- */
+/* entries from one batch share a batch id; older entries (before this feature) are grouped by identical input minute, reason, note and author */
+A.batchGroups=function(){
+  const map=new Map();
+  for(const e of A.DB.entries){if(e.base||!A.ITEM.get(e.item)||!A.COL.get(e.col))continue;
+    const k=e.batch?'b:'+e.batch:'a:'+String(e.at||'').slice(0,16)+'|'+(e.reason||'')+'|'+(e.note||'')+'|'+(e.by||'');
+    let g=map.get(k);if(!g){g={key:k,auto:!e.batch,label:e.bl||'',entries:[]};map.set(k,g)}g.entries.push(e)}
+  const out=[];
+  for(const g of map.values()){
+    if(g.auto&&g.entries.length<2)continue;
+    if(!g.auto&&g.entries.length<2&&(g.label==='품목 추가'||!g.label))continue;
+    const fs=g.entries.map(e=>e.from).sort(),ats=g.entries.map(e=>e.at||'').sort();
+    g.at=ats[0];g.by=g.entries[0].by||'';g.dates=fs[0]===fs[fs.length-1]?fs[0]:fs[0]+' ~ '+fs[fs.length-1];
+    if(g.auto){const n=(g.entries[0].note||g.entries[0].reason||'일괄 입력');g.label=n+' (추정)'}
+    out.push(g);
+  }
+  return out.sort((a,b)=>a.at<b.at?1:-1);
+};
+A.mountBatches=function(el){
+  function refresh(){
+    const gs=A.batchGroups();
+    if(!gs.length){el.innerHTML='<div class="empty"><b>묶어서 입력한 기록이 없습니다.</b>비율 인상·인하, 엑셀 일괄 변경, 품목 추가로 한꺼번에 입력한 기록이 여기에 묶여 나옵니다. 잘못 입력했을 때 적용일을 한 번에 고치거나 통째로 지울 수 있습니다.</div>';return}
+    el.innerHTML='<p class="hint">한 번에 입력한 기록을 묶어 보여 줍니다. 열어서 적용일을 한꺼번에 바꾸거나 지울 수 있습니다. "추정"은 이 기능을 넣기 전에 입력한 기록 중 입력 시각(분), 사유, 비고, 입력자가 같은 것을 묶은 것입니다.</p><div class="batchlist">'+
+      gs.map(g=>'<div class="batchrow"><div class="bi"><b>'+esc(g.label)+'</b>'+(g.auto?' <span class="tag" title="입력 시각·사유·비고가 같아서 묶은 추정 결과입니다">추정</span>':'')+'<div class="hint">입력 '+esc(shortDT(g.at))+(g.by?' · '+esc(g.by):'')+' · 적용일 '+esc(g.dates)+' · '+g.entries.length+'칸</div></div><button class="btn small" type="button" data-bt="'+esc(g.key)+'">열기</button></div>').join('')+'</div>';
+  }
+  el.addEventListener('click',ev=>{const b=ev.target.closest('[data-bt]');if(b)A.batchDialog(b.dataset.bt)});
+  refresh();return{refresh};
+};
+A.batchDialog=function(key){
+  const g=A.batchGroups().find(x=>x.key===key);if(!g){A.toast('이 묶음을 찾지 못했습니다. 이미 지웠거나 바뀌었을 수 있습니다.');return}
+  const rows=g.entries.slice().sort((a,b)=>{const ia=A.DB.items.indexOf(A.ITEM.get(a.item)),ib=A.DB.items.indexOf(A.ITEM.get(b.item));return ia-ib||(a.col<b.col?-1:1)});
+  A.openModal('<form class="batchform" autocomplete="off"><h2>'+esc(g.label)+'</h2><p class="hint">입력 '+esc(shortDT(g.at))+(g.by?' · '+esc(g.by):'')+' · 적용일 '+esc(g.dates)+' · '+rows.length+'칸'+(g.auto?' · 입력 시각과 사유가 같은 기록을 묶은 추정 결과입니다. 목록을 확인하고 선택하세요.':'')+'</p>'+
+    '<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table class="list"><thead><tr><th><input type="checkbox" data-all checked aria-label="전체 선택"></th><th>모델</th><th>거래처</th><th class="r">이전 → 이 기록</th><th>적용일</th></tr></thead><tbody>'+
+    rows.map(e=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col),pv=A.prevOf(e);return '<tr><td><input type="checkbox" data-ck value="'+esc(e.id)+'" checked></td><td class="num">'+esc(A.itemName(it))+'<br><span class="hint">'+esc(A.itemLabel(it))+'</span></td><td>'+esc(c.name)+'</td><td class="r num">'+(pv?esc(A.eText(pv))+' → ':'')+'<b>'+esc(A.eText(e))+'</b> '+A.deltaHtml(A.delta(pv,e))+'</td><td class="num">'+esc(e.from)+'</td></tr>'}).join('')+'</tbody></table></div>'+
+    '<div class="section" style="padding:10px"><b>적용일 한꺼번에 바꾸기</b><div class="row"><input type="date" name="nd" style="width:160px"><button type="button" class="btn primary" data-do="date">선택한 <span data-n></span>건 적용일 바꾸기</button></div></div>'+
+    '<div class="section" style="padding:10px"><b>삭제</b><p class="hint">선택한 기록을 지웁니다. 지우면 그 칸은 이전 단가로 돌아갑니다. 저장 전이면 되돌리기로 취소할 수 있습니다.</p><div class="row"><button type="button" class="btn danger" data-do="del">선택한 <span data-n></span>건 삭제</button></div></div>'+
+    '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button></div></form>',()=>false,'wide');
+  const f=document.querySelector('#modal form.batchform');
+  const picked=()=>[...f.querySelectorAll('[data-ck]')].filter(x=>x.checked).map(x=>x.value);
+  const upd=()=>f.querySelectorAll('[data-n]').forEach(s=>s.textContent=picked().length);upd();
+  f.addEventListener('change',ev=>{if(ev.target.matches('[data-all]'))f.querySelectorAll('[data-ck]').forEach(x=>x.checked=ev.target.checked);upd()});
+  f.addEventListener('click',ev=>{
+    const b=ev.target.closest('[data-do]');if(!b)return;const ids=picked(),err=m=>{f.querySelector('[data-err]').textContent=m};err('');
+    if(!ids.length){err('기록을 하나 이상 선택하세요.');return}
+    if(b.dataset.do==='date'){
+      const nd=f.nd.value;if(!nd){err('새 적용일을 입력하세요.');return}
+      let n=0;A.batch('적용일 일괄 수정 ('+ids.length+'건)',()=>{for(const id of ids)if(A.updateEntry(id,{from:nd}))n++});
+      A.closeModal();A.toast(n?n+'건의 적용일을 '+nd+'(으)로 바꿨습니다.':'바뀐 기록이 없습니다.',n?{action:{label:'되돌리기',fn:()=>A.undo()}}:undefined);return}
+    if(b.dataset.do==='del'){
+      if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 '+ids.length+'건 삭제';setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.innerHTML='선택한 <span data-n>'+picked().length+'</span>건 삭제'}},5000);return}
+      A.batch('일괄 삭제 ('+ids.length+'건)',()=>{for(const id of ids)A.deleteEntry(id)});
+      A.closeModal();A.toast(ids.length+'건을 삭제했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}
+  });
 };
 
 /* ---------- undo button + keyboard shortcuts ---------- */

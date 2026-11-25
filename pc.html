@@ -153,7 +153,7 @@ const A=Danga,{$,esc,today,addDays}=A;
 const VIEWS=[
   {id:'home',label:'홈',icon:'home',title:'홈',desc:'오늘 확인할 것과 자주 쓰는 작업'},
   {id:'table',label:'단가표',icon:'table',title:'단가표',desc:'기준일의 전체 단가를 보고 바로 바꿉니다'},
-  {id:'history',label:'이력',icon:'clock',title:'변경 이력',desc:'단가가 언제, 얼마에서 얼마로, 왜 바뀌었는지 찾아봅니다'},
+  {id:'history',label:'이력',icon:'clock',title:'변경 이력',desc:'단가가 언제, 어떻게 바뀌었는지 찾고, 한 번에 입력한 기록은 묶어서 고칩니다'},
   {id:'analysis',label:'분석',icon:'chart',title:'분석',desc:'변경 비교, 거래처 비교, 적용 예정 단가'},
   {id:'margin',label:'마진 · 환율',icon:'percent',title:'마진 · 환율',desc:'마진표, 원가 변동 시뮬레이션, 환율 관리'},
   {id:'tools',label:'작업 도구',icon:'tools',title:'작업 도구',desc:'일괄 변경, 거래처별 단가표, 내보내기'},
@@ -282,7 +282,7 @@ let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy(
 $('#tDate').value=today();
 const p=A.LS.get('danga.pc');if(p){if(p.hi)$('#tHi').value=p.hi;$('#tHideEmpty').checked=!!p.hide}
 homeHub=A.mountHome($('#homeBox'),ctx);
-hist=A.mountHistory($('#v-history'));
+hist=A.mountTabs($('#v-history'),[{id:'list',label:'변경 내역',mount:el=>A.mountHistory(el)},{id:'batch',label:'일괄 변경 묶음',mount:el=>A.mountBatches(el)}],'hist');
 anaHub=A.mountTabs($('#anaBox'),[{id:'diff',label:'변경 비교',mount:el=>A.mountAnalysis(el)},{id:'compare',label:'거래처 비교',mount:el=>A.mountCompare(el)},{id:'upcoming',label:'적용 예정 단가',mount:el=>A.mountUpcoming(el)}],'ana');
 marHub=A.mountTabs($('#marBox'),[{id:'table',label:'마진표',mount:mountMarginTable},{id:'sim',label:'원가 변동 시뮬레이션',mount:el=>A.mountSim(el)},{id:'fx',label:'환율',mount:el=>{el.innerHTML='<div class="section" id="fxBox"></div>';return A.mountFx($('#fxBox'))}}],'mar');
 toolsHub=A.mountTools($('#toolsBox'),ctx);

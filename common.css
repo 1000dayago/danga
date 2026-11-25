@@ -221,3 +221,10 @@ table.list{border-collapse:collapse;width:100%;font-size:13px}
 .home-head p{margin:2px 0 0}
 .list td.r,.list td.num,.list td.md{white-space:nowrap}
 .list td.num{font-family:var(--font-num)}
+.timeline li.editing{display:block;padding:10px 0}
+.timeline li.editing form{display:flex;flex-direction:column;gap:10px}
+.batchlist{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.batchrow{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+.batchrow:last-child{border-bottom:none}
+.batchrow .bi{min-width:0}
+.batchform .list td{white-space:nowrap}
