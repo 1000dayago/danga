@@ -27,16 +27,16 @@ const shortDT=s=>s?String(s).replace('T',' ').slice(0,16):'';
 const localDT=s=>{if(!s)return '';const d=new Date(s);if(isNaN(d))return shortDT(s);return isoD(d)+' '+pad(d.getHours())+':'+pad(d.getMinutes())};
 const clone=o=>JSON.parse(JSON.stringify(o));
 const norm=s=>String(s).replace(/\s+/g,' ').trim();
-Object.assign(A,{$,esc,LS,today,addDays,nowIso,fmtN,shortDT,localDT,REASONS});
+Object.assign(A,{$,esc,LS,today,addDays,nowIso,fmtN,shortDT,localDT,REASONS,uid,norm,pad,isoD,openModal});
 
 let toastT;
-A.toast=function(msg){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3800)};
+A.toast=function(msg,opt){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;if(opt&&opt.action){const b=document.createElement('button');b.type='button';b.className='toast-act';b.textContent=opt.action.label;b.addEventListener('click',()=>{t.hidden=true;opt.action.fn()});t.appendChild(b)}t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,opt&&opt.action?8000:3800)};
 
 /* ---------- state ---------- */
-const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[]});
+const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[],fxCurs:[]});
 const validDb=d=>d&&Array.isArray(d.columns)&&Array.isArray(d.items)&&Array.isArray(d.entries);
-const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log'])if(!Array.isArray(d[k]))d[k]=[];return d};
-A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null},LS.get('danga.settings')||{});
+const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log','fxCurs'])if(!Array.isArray(d[k]))d[k]=[];return d};
+A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null,userName:'',company:'',sheetNote:'',warnPct:30,lowMargin:10,basis:'hana',viewKrw:false,favs:[]},LS.get('danga.settings')||{});
 A.saveSettings=()=>LS.set('danga.settings',A.settings);
 const draft=LS.get('danga.draft');
 A.DB=draft&&validDb(draft.db)?normDb(draft.db):emptyDb();
@@ -46,7 +46,18 @@ A.persist=()=>LS.set('danga.draft',{db:A.DB,dirty:A.dirty,sync:A.sync});
 const listeners=[];
 A.onChange=fn=>listeners.push(fn);
 A.emit=()=>listeners.forEach(f=>{try{f()}catch(e){console.error(e)}});
-A.touch=n=>{A.dirty+=n||1;A.persist();A.emit()};
+/* undo: one snapshot per user action; kept until the next save or load */
+A.undoStack=[];let prevStr=null,batching=0,batchPushed=false,batchLabel='';
+const snap=()=>JSON.stringify(A.DB);
+A.resetUndo=()=>{A.undoStack=[];prevStr=snap()};
+A.touch=(n,label)=>{
+  const push=lb=>{A.undoStack.push({str:prevStr,dirty:A.dirty,label:lb||'변경'});if(A.undoStack.length>30)A.undoStack.shift()};
+  if(batching){if(!batchPushed){push(batchLabel);batchPushed=true}}else push(label);
+  A.dirty+=n||1;A.persist();prevStr=snap();A.emit();
+};
+A.batch=(label,fn)=>{batching++;batchLabel=label;batchPushed=false;try{return fn()}finally{batching--}};
+A.undo=()=>{const e=A.undoStack.pop();if(!e)return null;A.DB=normDb(JSON.parse(e.str));A.reindex();A.dirty=e.dirty;A.persist();prevStr=e.str;A.emit();document.dispatchEvent(new Event('danga:undo'));return e.label};
+A.resetUndo();
 A.isEmpty=()=>!A.DB.items.length;
 
 /* ---------- index & lookups ---------- */
@@ -64,8 +75,58 @@ A.prevOf=e=>{const h=A.hist(e.item,e.col);const k=h.indexOf(e);return k>0?h[k-1]
 A.hasFuture=(i,c,d)=>{const h=A.hist(i,c);return h.length>0&&h[h.length-1].from>d};
 const isNum=e=>!!e&&typeof e.v==='number';A.isNum=isNum;
 A.hasVal=e=>!!e&&(isNum(e)||!!e.t);
-A.eHtml=e=>{if(!e)return '';if(isNum(e))return (e.cur&&e.cur!=='KRW'?'<span class="cur">'+esc(e.cur)+'</span>':'')+esc(fmtN(e.v));return esc(e.t||'')};
+A.eHtml=(e,d)=>{if(!e)return '';if(isNum(e)){const c=e.cur||'KRW';if(c==='KRW')return esc(fmtN(e.v));if(A.view.krw&&d){const r=A.fxAt(d,c);if(r)return '<span class="conv" title="'+esc(fmtN(e.v)+' '+c+' × '+fmtN(r)+'원')+'">'+esc(fmtN(Math.round(e.v*r)))+'</span>';return '<span class="cur">'+esc(c)+'</span>'+esc(fmtN(e.v))+'<span class="nofx" title="환율이 없어 원래 통화로 표시합니다">!</span>'}return '<span class="cur">'+esc(c)+'</span>'+esc(fmtN(e.v))}return esc(e.t||'')};
 A.eText=e=>{if(!e)return '없음';if(isNum(e))return fmtN(e.v)+(e.cur&&e.cur!=='KRW'?' '+e.cur:'원');return e.t?e.t:'없음'};
+/* ---------- currencies ---------- */
+const CUR_CODES='KRW USD EUR RMB JPY GBP AUD CAD CHF HKD SGD TWD THB VND IDR MYR PHP INR PKR BDT LKR NPR MMK KHR LAK MNT KZT UZS RUB UAH BYN TRY AED SAR QAR KWD BHD OMR JOD ILS EGP MAD TND DZD NGN GHS KES TZS UGX ZAR ETB XOF XAF NZD FJD PGK MXN BRL ARS CLP COP PEN UYU BOB PYG CRC GTQ DOP JMD TTD PAB SEK NOK DKK ISK PLN CZK HUF RON BGN RSD MKD ALL BAM GEL AMD AZN MDL IRR IQD LBP SYP YER AFN BND MOP MVR BTN KGS TJS TMT AOA MZN ZMW BWP NAD MUR SCR GMD'.split(' ');
+const FAV_CUR=['KRW','USD','EUR','RMB','JPY'];
+let _dn=null;try{_dn=new Intl.DisplayNames(['ko'],{type:'currency'})}catch(e){}
+const curKo=c=>{if(c==='KRW')return '대한민국 원';if(c==='RMB')return '중국 위안 (CNY)';try{const n=_dn&&_dn.of(c);return n&&n!==c?n:''}catch(e){return ''}};
+A.curList=()=>CUR_CODES.map(c=>({code:c,ko:curKo(c)}));
+A.isCur=c=>CUR_CODES.includes(c);
+A.normCur=c=>{c=String(c||'').toUpperCase();if(c==='CNY')c='RMB';return A.isCur(c)?c:null};
+A.curLabel=c=>!c||c==='KRW'?'원':c;
+A.usedCurs=()=>{const s=new Set();for(const e of A.DB.entries)if(e.cur&&e.cur!=='KRW')s.add(e.cur);for(const f of A.DB.fx)for(const k of Object.keys(f))if(/^[A-Z]{3}$/.test(k)&&f[k]!=null)s.add(k);for(const c of A.DB.fxCurs||[])s.add(c);return s};
+A.curOptions=v=>{const list=[...new Set([...FAV_CUR,...A.usedCurs()])];if(v&&!list.includes(v))list.push(v);return list.map(c=>'<option value="'+c+'"'+(c===v?' selected':'')+'>'+esc(A.curLabel(c))+'</option>').join('')+'<option value="__more__">다른 통화 검색…</option>'};
+A.setCur=(sel,c)=>{c=c||'KRW';if(![...sel.options].some(o=>o.value===c)){const o=document.createElement('option');o.value=c;o.textContent=A.curLabel(c);sel.insertBefore(o,sel.querySelector('option[value="__more__"]'))}sel.value=c;sel.dataset.prev=c};
+A.pickCurrency=function(cb){
+  const old=document.getElementById('curpick');if(old)old.remove();
+  const ov=document.createElement('div');ov.id='curpick';ov.className='modal';ov.style.zIndex=70;
+  ov.innerHTML='<div class="modal-card"><h2>통화 선택</h2><input type="search" id="curq" placeholder="코드나 이름 (예: JPY, 엔, 달러)" autocomplete="off"><div class="curlist"></div><div class="row-end"><button class="btn" type="button" data-x>취소</button></div></div>';
+  document.body.appendChild(ov);
+  const list=A.curList(),q=ov.querySelector('#curq'),box=ov.querySelector('.curlist');
+  const close=c=>{ov.remove();cb(c)};
+  const draw=()=>{const s=q.value.trim().toLowerCase(),used=A.usedCurs();
+    const rows=list.filter(x=>!s||x.code.toLowerCase().includes(s)||x.ko.toLowerCase().includes(s)).sort((a,b)=>((FAV_CUR.includes(b.code)||used.has(b.code))?1:0)-((FAV_CUR.includes(a.code)||used.has(a.code))?1:0));
+    box.innerHTML=rows.length?rows.slice(0,100).map(x=>'<button type="button" class="currow" data-c="'+x.code+'"><b>'+esc(x.code)+'</b><span>'+esc(x.ko)+'</span></button>').join(''):'<p class="hint">찾는 통화가 없습니다.</p>'};
+  q.addEventListener('input',draw);
+  ov.addEventListener('click',ev=>{if(ev.target===ov||ev.target.closest('[data-x]')){close(null);return}const b=ev.target.closest('[data-c]');if(b)close(b.dataset.c)});
+  ov.addEventListener('keydown',ev=>{if(ev.key==='Escape'){ev.stopPropagation();close(null)}});
+  draw();q.focus();
+};
+document.addEventListener('change',ev=>{const s=ev.target;if(!s.classList||!s.classList.contains('cursel'))return;
+  if(s.value==='__more__'){const prev=s.dataset.prev||'KRW';A.pickCurrency(code=>{if(!code){s.value=prev;return}A.setCur(s,code);s.dispatchEvent(new Event('change',{bubbles:true}))})}else s.dataset.prev=s.value});
+A.fxColumns=()=>{const s=new Set(['EUR','RMB','USD']);for(const c of A.usedCurs())s.add(c);return [...s]};
+
+/* display currency (원래 통화 / 원화 환산) */
+A.view={krw:!!A.settings.viewKrw};
+A.setKrw=b=>{A.view.krw=!!b;A.settings.viewKrw=!!b;A.saveSettings();A.emit()};
+A.krwValue=(e,d)=>{if(!A.view.krw||!isNum(e))return null;const c=e.cur||'KRW';if(c==='KRW')return null;const r=A.fxAt(d,c);return r?Math.round(e.v*r):null};
+A.krwNote=(e,d)=>{if(!isNum(e)||!e.cur||e.cur==='KRW')return '';const r=A.fxAt(d,e.cur);return r?'≈ '+fmtN(Math.round(e.v*r))+'원 (1 '+e.cur+' = '+fmtN(r)+'원)':'환율 미입력'};
+
+/* thresholds, alerts, favorites */
+A.lowMargin=()=>{const v=Number(A.settings.lowMargin);return A.settings.lowMargin===''||A.settings.lowMargin==null||isNaN(v)?10:v};
+A.basis=()=>A.settings.basis==='dukwoo'?'dukwoo':'hana';
+A.setBasis=b=>{A.settings.basis=b;A.saveSettings()};
+A.isBig=(p,n)=>{const th=Number(A.settings.warnPct);if(!(th>0)||!isNum(p)||!isNum(n))return false;if((p.cur||'KRW')!==(n.cur||'KRW'))return true;if(!p.v)return false;return Math.abs((n.v-p.v)/p.v*100)>=th};
+A.marginList=(d,basis)=>{const out=[];for(const it of A.DB.items)for(const c of A.DB.columns){if(c.group==='buy')continue;const r=A.marginOf(it,c,d,basis||A.basis());if(r)out.push({it,c,r})}return out};
+A.alerts=(d,basis)=>{d=d||today();const all=A.marginList(d,basis),lm=A.lowMargin(),ok=all.filter(x=>!x.r.unknown);
+  let fxCells=0;const fxCur=new Set();for(const it of A.DB.items)for(const c of A.DB.columns){const e=A.entryAt(it.id,c.key,d);if(isNum(e)&&e.cur&&e.cur!=='KRW'&&!A.fxAt(d,e.cur)){fxCells++;fxCur.add(e.cur)}}
+  return{neg:ok.filter(x=>x.r.m<0),low:ok.filter(x=>x.r.m>=0&&x.r.p<lm),unknown:all.filter(x=>x.r.unknown),fxCells,fxCur:[...fxCur]}};
+A.itemMarginNotice=(id,d)=>{const it=A.ITEM.get(id);if(!it)return '';const lm=A.lowMargin(),bad=[];for(const c of A.DB.columns){if(c.group==='buy')continue;const r=A.marginOf(it,c,d,A.basis());if(r&&!r.unknown&&(r.m<0||r.p<lm))bad.push(c.name+' '+(r.m<0?'역마진 ':'저마진 ')+fmtN(Math.round(r.m*100)/100)+'원('+r.p.toFixed(1)+'%)')}return bad.length?'⚠ 이 품목의 마진을 확인하세요: '+bad.join(', '):''};
+A.isFav=id=>(A.settings.favs||[]).includes(id);
+A.toggleFav=id=>{const s=new Set(A.settings.favs||[]);if(s.has(id))s.delete(id);else s.add(id);A.settings.favs=[...s];A.saveSettings();A.emit()};
+
 A.delta=(p,e)=>{if(!isNum(p)||!isNum(e)||(p.cur||'KRW')!==(e.cur||'KRW'))return null;const d=e.v-p.v;return{d,p:p.v?d/p.v*100:null}};
 A.deltaHtml=x=>{if(!x)return '';const cls=x.d>0?'up':x.d<0?'down':'';const s=x.d>0?'+':'';return '<span class="'+cls+' num">'+s+esc(fmtN(x.d))+(x.p!=null?' ('+s+x.p.toFixed(1)+'%)':'')+'</span>'};
 A.sameVal=(a,b)=>JSON.stringify(a?[a.v,a.t,a.cur]:null)===JSON.stringify(b?[b.v,b.t,b.cur]:null);
@@ -89,8 +150,8 @@ A.marginOf=(it,c,d,basis)=>{
 };
 
 /* ---------- mutations ---------- */
-A.addEntry=e=>{e.id=uid('e');e.at=nowIso();A.DB.entries.push(e);A.reindex();A.touch()};
-A.deleteEntry=id=>{A.DB.entries=A.DB.entries.filter(x=>x.id!==id);A.DB.deleted.push(id);A.reindex();A.touch()};
+A.addEntry=e=>{e.id=uid('e');e.at=nowIso();if(A.settings.userName)e.by=A.settings.userName;A.DB.entries.push(e);A.reindex();const it=A.ITEM.get(e.item),c=A.COL.get(e.col);A.touch(1,'단가 기록: '+(it?A.itemName(it):'')+(c?' · '+c.name:''))};
+A.deleteEntry=id=>{A.DB.entries=A.DB.entries.filter(x=>x.id!==id);A.DB.deleted.push(id);A.reindex();A.touch(1,'기록 삭제')};
 A.addItem=it=>{
   it.id=uid('i');let idx=-1;
   A.DB.items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2)idx=k});
@@ -126,14 +187,14 @@ A.mergeDb=function(local,remote){
   };
   const I=mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
   const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{columns:sortCols(C.act),items:regroup(I.act),entries:byId(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log)};
+  return{columns:sortCols(C.act),items:regroup(I.act),entries:byId(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])]};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
 const updStamp=()=>new Date().toISOString();
-const logChange=text=>A.DB.log.push({id:uid('l'),at:nowIso(),text});
+let lastLog='';const logChange=text=>{lastLog=text;A.DB.log.push({id:uid('l'),at:nowIso(),text})};
 const itemPath=it=>[it.cat1,it.cat2,it.model].filter(Boolean).join(' › ');
-const commit=()=>{A.reindex();A.touch()};
+const commit=()=>{A.reindex();A.touch(1,lastLog)};
 A.findDupItem=(cat1,cat2,model,exceptId)=>A.DB.items.find(x=>x.id!==exceptId&&x.cat1===cat1&&x.cat2===cat2&&x.model===model);
 A.updateItem=function(id,patch){
   const it=A.ITEM.get(id);if(!it)return;const before=itemPath(it);const moved=patch.cat1!==it.cat1||patch.cat2!==it.cat2;
@@ -158,7 +219,7 @@ A.renameCat=function(level,cat1,oldName,newName){
   A.DB.items=regroup(A.DB.items);logChange((level===1?'대구분':'소구분')+' 이름 변경: '+(level===2?cat1+' › ':'')+(oldName||'(소구분 없음)')+' → '+(newName||'(소구분 없음)')+' (품목 '+hit.length+'개)');commit();return hit.length;
 };
 
-A.replaceDb=(db,opts)=>{A.DB=normDb(db);A.reindex();opts=opts||{};A.dirty=opts.dirty||0;if(opts.overwrite)A.sync.overwrite=true;A.persist();A.emit()};
+A.replaceDb=(db,opts)=>{A.DB=normDb(db);A.reindex();opts=opts||{};A.dirty=opts.dirty||0;if(opts.overwrite)A.sync.overwrite=true;A.persist();A.resetUndo();A.emit()};
 
 /* ---------- excel ---------- */
 let xlsxP=null;
@@ -199,7 +260,7 @@ A.exportXlsx=async function(d){
   const X=await A.loadXlsx();const cols=A.DB.columns,its=A.DB.items;
   const aoa=[['대구분','소구분','MODEL'].concat(cols.map(c=>c.name+(c.group==='buy'?'\n매입가':'')))];
   const notes=[];
-  its.forEach((it,r)=>{const row=[it.cat1,it.cat2,it.model];cols.forEach((c,k)=>{const e=A.entryAt(it.id,c.key,d);row.push(e?(isNum(e)?e.v:(e.t||null)):null);if(isNum(e)&&e.cur&&e.cur!=='KRW')notes.push([r+1,k+3,e.cur])});aoa.push(row)});
+  its.forEach((it,r)=>{const row=[it.cat1,it.cat2,it.model];cols.forEach((c,k)=>{const e=A.entryAt(it.id,c.key,d);const cv=A.krwValue(e,d);row.push(e?(isNum(e)?(cv!=null?cv:e.v):(e.t||null)):null);if(isNum(e)&&e.cur&&e.cur!=='KRW'&&cv==null)notes.push([r+1,k+3,e.cur])});aoa.push(row)});
   const merges=[];
   for(let r=0;r<its.length;){let n=1;while(r+n<its.length&&its[r+n].cat1===its[r].cat1)n++;if(n>1)merges.push({s:{r:r+1,c:0},e:{r:r+n,c:0}});r+=n}
   for(let r=0;r<its.length;){let n=1;while(r+n<its.length&&its[r+n].cat1===its[r].cat1&&its[r+n].cat2===its[r].cat2)n++;if(n>1)merges.push({s:{r:r+1,c:1},e:{r:r+n,c:1}});r+=n}
@@ -253,8 +314,8 @@ function gridPrint(d,cellsFn,cols,opts){
 A.printPriceTable=function(d){
   const cols=A.DB.columns.filter(c=>A.DB.items.some(it=>A.hasVal(A.entryAt(it.id,c.key,d))));
   const since=addDays(d,-30);
-  const html=gridPrint(d,(it,c)=>{const e=A.entryAt(it.id,c.key,d);const txt=e&&!isNum(e)&&e.t&&e.t.length>3;return '<td class="'+(txt?'txt':'r')+(c.group==='buy'?' buy':'')+(A.isChanged(e,since)?' chg':'')+'">'+A.eHtml(e)+'</td>'},cols);
-  A.printReport('단가표',d+' 기준 · 거래가 있는 거래처 '+cols.length+'곳 · 음영: 최근 30일 변경 · 표시 없는 금액은 원',html+'<p class="pr-note">EUR·RMB 표시는 외화 단가입니다.</p>');
+  const html=gridPrint(d,(it,c)=>{const e=A.entryAt(it.id,c.key,d);const txt=e&&!isNum(e)&&e.t&&e.t.length>3;return '<td class="'+(txt?'txt':'r')+(c.group==='buy'?' buy':'')+(A.isChanged(e,since)?' chg':'')+'">'+A.eHtml(e,d)+'</td>'},cols);
+  A.printReport('단가표',d+' 기준 · 거래가 있는 거래처 '+cols.length+'곳 · 음영: 최근 30일 변경 · 표시 없는 금액은 원',html+'<p class="pr-note">'+(A.view.krw?'외화 단가는 '+d+' 기준 환율로 원화 환산한 값입니다.':'EUR·RMB 등 통화가 표시된 금액은 외화 단가입니다.')+'</p>');
 };
 
 /* 마진표 */
@@ -274,14 +335,14 @@ A.printMargin=function(d,basis){
   const html=gridPrint(d,(it,c)=>{
     if(c.key==='__cost'){const cost=A.costAt(it,d,basis);if(!cost)return '<td class="r buy">-</td>';if(cost.needFx)return '<td class="r buy">'+esc(cost.e.cur)+' 환율 필요</td>';return '<td class="r buy">'+esc(fmtN(Math.round(cost.krw*100)/100))+'</td>'}
     const r=A.marginOf(it,c,d,basis);if(!r)return '<td></td>';if(r.unknown)return '<td class="r">?</td>';
-    return '<td class="r'+(r.m<0?' neg':r.p<10?' low':'')+'">'+esc(fmtN(Math.round(r.m*100)/100))+'<br><small>'+r.p.toFixed(1)+'%</small></td>'},cols,{items});
+    return '<td class="r'+(r.m<0?' neg':r.p<A.lowMargin()?' low':'')+'">'+esc(fmtN(Math.round(r.m*100)/100))+'<br><small>'+r.p.toFixed(1)+'%</small></td>'},cols,{items});
   A.printReport('마진표',d+' 기준 · 칸 위: 마진(원), 아래: 마진율(판매가 대비) · 원가 기준 '+(basis==='dukwoo'?'덕우 우선':'하나테크 우선'),html+'<p class="pr-note">?: 원가 또는 환율이 없어 계산하지 못한 칸. 빨강: 역마진.</p>');
 };
 
 /* 변경 이력 */
-const histHead=['적용일','대구분','소구분','모델','거래처','구분','이전 단가','변경 단가','통화','증감','증감률(%)','사유','비고','입력 일시'];
-const histRow=({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return [e.from,it.cat1,it.cat2,it.model,c.name,c.group==='buy'?'매입':'판매',numOrText(p),numOrText(e),curName(e.cur),x?x.d:null,x&&x.p!=null?Math.round(x.p*10)/10:null,e.base?'기준 단가':(e.reason||''),e.note||'',shortDT(e.at)]};
-A.exportHistoryXlsx=function(rows,desc){return A.exportBook('단가이력_'+today()+'.xlsx',[{name:'변경 이력',title:'단가 변경 이력',subtitle:desc,head:histHead,rows:rows.map(histRow),widths:[11,12,12,18,12,6,10,10,6,9,9,16,20,16],num:[6,7,9],pct:[10]}])};
+const histHead=['적용일','대구분','소구분','모델','거래처','구분','이전 단가','변경 단가','통화','증감','증감률(%)','사유','비고','입력 일시','입력자'];
+const histRow=({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return [e.from,it.cat1,it.cat2,it.model,c.name,c.group==='buy'?'매입':'판매',numOrText(p),numOrText(e),curName(e.cur),x?x.d:null,x&&x.p!=null?Math.round(x.p*10)/10:null,e.base?'기준 단가':(e.reason||''),e.note||'',shortDT(e.at),e.by||'']};
+A.exportHistoryXlsx=function(rows,desc){return A.exportBook('단가이력_'+today()+'.xlsx',[{name:'변경 이력',title:'단가 변경 이력',subtitle:desc,head:histHead,rows:rows.map(histRow),widths:[11,12,12,18,12,6,10,10,6,9,9,16,20,16,10],num:[6,7,9],pct:[10]}])};
 A.printHistory=function(rows,desc){
   A.printReport('단가 변경 이력',desc,prTable(['적용일','구분','모델','거래처','이전','변경','증감','사유','비고'],rows.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return [e.from,A.itemLabel(it),it.model,c.name,p?A.eText(p):'',{html:'<b>'+esc(A.eText(e))+'</b>'},{html:x?'<span class="'+(x.d>0?'up':x.d<0?'down':'')+'">'+esc(dTxt(x.d)+(x.p!=null?' ('+pctTxt(x.p)+')':''))+'</span>':''},e.base?'기준 단가':(e.reason||''),e.note||'']}),{right:[4,5,6]}));
 };
@@ -317,11 +378,12 @@ function getToken(interactive){
   if(!gisReady())return A.loadGis().then(()=>Promise.reject(new Error('구글 로그인 준비가 끝났습니다. 버튼을 한 번 더 눌러 주세요.')));
   return new Promise((res,rej)=>{
     const c=google.accounts.oauth2.initTokenClient({client_id:A.settings.clientId.trim(),scope:SCOPE,
-      callback:r=>{if(r.error){rej(new Error('구글 로그인 실패: '+(r.error_description||r.error)));return}D.token=r.access_token;D.exp=Date.now()+(Number(r.expires_in)||3600)*1000;LS.set('danga.token',{t:D.token,exp:D.exp});res(D.token)},
+      callback:r=>{if(r.error){rej(new Error('구글 로그인 실패: '+(r.error_description||r.error)));return}D.token=r.access_token;D.exp=Date.now()+(Number(r.expires_in)||3600)*1000;LS.set('danga.token',{t:D.token,exp:D.exp});A.fetchUser();res(D.token)},
       error_callback:e=>rej(new Error(e&&e.type==='popup_closed'?'구글 로그인 창이 닫혔습니다.':e&&e.type==='popup_failed_to_open'?'로그인 창이 차단됐습니다. 브라우저의 팝업 차단을 해제하세요.':'구글 로그인에 실패했습니다.'))});
     c.requestAccessToken({prompt:''});
   });
 }
+A.fetchUser=()=>{if(A.settings.userName)return;api('GET','https://www.googleapis.com/drive/v3/about?fields=user(displayName)').then(r=>{const n=r&&r.user&&r.user.displayName;if(n&&!A.settings.userName){A.settings.userName=n;A.saveSettings();A.emit()}}).catch(()=>{})};
 A.signOut=()=>{const t=D.token;D.token=null;D.exp=0;LS.del('danga.token');if(t&&gisReady())google.accounts.oauth2.revoke(t,()=>{});A.emit()};
 async function api(method,url,body,headers,type){
   const t=cachedToken();if(!t)throw new Error('구글 로그인이 만료됐습니다. 다시 로그인하세요.');
@@ -388,7 +450,7 @@ A.save=function(){
     const content=A.pack();
     const r=found&&found.main?await upload({},content,found.file.id):await upload({name:mainName(),parents:[fid],mimeType:'application/json'},content);
     A.sync={fileId:r.id,remoteModified:r.modifiedTime,at:nowIso(),title:r.name,overwrite:false};A.dirty=0;
-    A.settings.connected=true;A.saveSettings();A.persist();
+    A.settings.connected=true;A.saveSettings();A.persist();A.resetUndo();
     const day=today();
     if(A.settings.lastBackup!==day){
       try{const bf=await subFolder(fid,'백업',true);const bn=(A.settings.prefix||'단가DB').trim()+'_'+day.replace(/-/g,'')+'.json';const ex=(await find("'"+qs(bf)+"' in parents and name = '"+qs(bn)+"' and trashed = false"))[0];await upload(ex?{}:{name:bn,parents:[bf],mimeType:'application/json'},content,ex&&ex.id);A.settings.lastBackup=day;A.saveSettings()}catch(e){console.warn('backup',e)}
@@ -412,7 +474,7 @@ A.pull=function(interactive){
     if(A.dirty>0&&!A.isEmpty()){A.DB=A.mergeDb(A.DB,remote)}else{A.DB=normDb(remote);A.dirty=0}
     A.reindex();
     A.sync=Object.assign(A.sync,{fileId:found.main?found.file.id:null,remoteModified:found.main?found.file.modifiedTime:null,at:nowIso(),title:found.file.name});
-    A.settings.connected=true;A.saveSettings();A.persist();
+    A.settings.connected=true;A.saveSettings();A.persist();A.resetUndo();
     A.status('불러왔습니다: '+found.file.name+' ('+localDT(found.file.modifiedTime)+')'+(A.dirty?' · 저장 안 된 변경 '+A.dirty+'건은 유지했습니다':''),'ok');
     A.emit();return true;
   })).catch(e=>{if(e.message){A.status(e.message,'err');if(interactive)A.toast(e.message)}return false});
@@ -434,7 +496,7 @@ A.loadFile=function(f){
     const isMain=f.name===mainName()&&!f.backup;
     A.DB=db;A.reindex();A.dirty=isMain?0:1;
     A.sync=Object.assign(A.sync,{fileId:isMain?f.id:A.sync.fileId,remoteModified:isMain?f.modifiedTime:A.sync.remoteModified,at:nowIso(),title:f.name,overwrite:!isMain});
-    A.persist();A.status(isMain?'불러왔습니다: '+f.name:f.name+'을(를) 불러왔습니다. 저장하면 이 내용으로 현재 파일을 덮어씁니다.','ok');A.emit();
+    A.persist();A.resetUndo();A.status(isMain?'불러왔습니다: '+f.name:f.name+'을(를) 불러왔습니다. 저장하면 이 내용으로 현재 파일을 덮어씁니다.','ok');A.emit();
   }));
 };
 A.checkPath=function(){
@@ -481,32 +543,39 @@ A.renderCell=function(el,i,c,opts){
   opts=opts||{};const it=A.ITEM.get(i),col=A.COL.get(c);if(!it||!col){el.innerHTML='';return}
   const h=A.hist(i,c),cur=A.entryAt(i,c,today()),t=today();
   const lastCur=(h.length?h[h.length-1].cur:null)||'KRW';
-  let b='<div><div class="hint">오늘 적용 중인 단가</div><div class="now"><span class="big">'+esc(cur?A.eText(cur):'없음')+'</span>'+(cur?'<span class="tag">'+esc(cur.from)+'부터</span>':'')+'</div></div>';
+  let b=(opts.notice?'<div class="status-line err">'+esc(opts.notice)+'</div>':'')+'<div><div class="hint">오늘 적용 중인 단가</div><div class="now"><span class="big">'+esc(cur?A.eText(cur):'없음')+'</span>'+(cur&&A.krwNote(cur,t)?'<span class="hint">'+esc(A.krwNote(cur,t))+'</span>':'')+(cur?'<span class="tag">'+esc(cur.from)+'부터</span>':'')+'</div></div>';
   const nums=h.filter(isNum).filter(e=>(e.cur||'KRW')===lastCur);
   if(nums.length>=2)b+='<div class="chart">'+stepChart(nums)+'</div>';
   b+='<div><h2 style="margin-bottom:6px">변경 이력 <span class="hint">('+h.length+'건)</span></h2>';
   if(!h.length)b+='<p class="hint">기록이 없습니다. 아래에서 첫 단가를 입력하세요.</p>';
   else{b+='<ol class="timeline">';for(const e of [...h].reverse()){const p=A.prevOf(e);
     b+='<li class="'+(e.from>t?'future':'')+'"><span class="d">'+esc(e.from)+(e.from>t?'<br>적용 예정':'')+'</span><span><span class="val">'+esc(A.eText(e))+'</span> '+(p?'<span class="hint">← '+esc(A.eText(p))+'</span> ':'')+A.deltaHtml(A.delta(p,e))+'</span>'+
-    '<span class="meta">'+(e.base?'<span class="tag base">기준 단가</span>':'')+(e.reason&&!e.base?'<span class="tag">'+esc(e.reason)+'</span>':'')+(e.note?'<span>'+esc(e.note)+'</span>':'')+'<span>입력 '+esc(shortDT(e.at))+'</span>'+(e.base?'':'<button class="btn small danger" type="button" data-del="'+esc(e.id)+'">삭제</button>')+'</span></li>'}
+    '<span class="meta">'+(e.base?'<span class="tag base">기준 단가</span>':'')+(e.reason&&!e.base?'<span class="tag">'+esc(e.reason)+'</span>':'')+(e.note?'<span>'+esc(e.note)+'</span>':'')+'<span>입력 '+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</span>'+(e.base?'':'<button class="btn small danger" type="button" data-del="'+esc(e.id)+'">삭제</button>')+'</span></li>'}
     b+='</ol>'}
   b+='</div><form class="section" autocomplete="off" data-cellform><h2>단가 변경 기록</h2><div class="form">'+
     '<label class="field"><span>새 단가</span><input type="text" inputmode="decimal" name="v" placeholder="숫자"></label>'+
-    '<label class="field"><span>통화</span><select name="cur"><option value="KRW">원</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="USD">USD</option></select></label>'+
+    '<label class="field"><span>통화</span><select name="cur" class="cursel">'+A.curOptions('KRW')+'</select></label>'+
     '<label class="field"><span>적용일</span><input type="date" name="from" required></label>'+
     '<label class="field"><span>사유</span><select name="reason">'+REASONS.map(r=>'<option>'+esc(r)+'</option>').join('')+'</select></label>'+
     '<label class="field full"><span>비고</span><input type="text" name="note" placeholder="예: 5월 출고분부터, 견적서 번호"></label>'+
     '<label class="check full"><input type="checkbox" name="none"> 거래 없음으로 변경 (칸 비우기)</label></div>'+
     '<p class="hint" data-msg>적용일 이전 날짜로 보면 이전 단가가, 이후 날짜로 보면 새 단가가 나옵니다.</p><div class="row-end"><button class="btn primary" type="submit">기록하기</button></div></form>';
   el.innerHTML=b;
-  const f=el.querySelector('[data-cellform]');f.cur.value=lastCur;const d=opts.date||t;f.from.value=d>t?d:t;
+  const f=el.querySelector('[data-cellform]');A.setCur(f.cur,lastCur);const d=opts.date||t;f.addEventListener('input',()=>{if(f.dataset.ok){delete f.dataset.ok;f.querySelector('button[type=submit]').textContent='기록하기'}});f.from.value=d>t?d:t;
   f.addEventListener('submit',ev=>{ev.preventDefault();const msg=f.querySelector('[data-msg]');
     const none=f.none.checked,raw=f.v.value.trim().replace(/,/g,''),from=f.from.value;
     if(!from){msg.textContent='적용일을 입력하세요.';msg.className='hint up';return}
     let v=null,tx=null;
     if(!none){if(raw==='-')tx='-';else{v=Number(raw);if(raw===''||isNaN(v)){msg.textContent='새 단가를 숫자로 입력하세요. 거래를 끊는 경우 "거래 없음"을 체크하세요.';msg.className='hint up';return}}}
     const e={item:i,col:c,v,t:tx,cur:f.cur.value,from,reason:f.reason.value,note:f.note.value.trim()};
-    A.addEntry(e);A.toast(from+'부터 '+A.eText(e)+'(으)로 기록했습니다. 드라이브 저장 전입니다.');A.renderCell(el,i,c,opts);
+    const prevE=A.entryAt(i,c,from),okKey=JSON.stringify([v,tx,e.cur,from]);
+    if(f.dataset.ok!==okKey&&A.isBig(prevE,e)){
+      const same=(prevE.cur||'KRW')===(e.cur||'KRW'),pe=same?(e.v-prevE.v)/prevE.v*100:null;
+      msg.textContent=same?'⚠ '+A.eText(prevE)+' → '+A.eText(e)+' ('+(pe>0?'+':'')+pe.toFixed(0)+'%)로 크게 바뀝니다. 맞으면 한 번 더 눌러 주세요.':'⚠ 통화가 '+A.curLabel(prevE.cur)+' → '+A.curLabel(e.cur)+'(으)로 바뀝니다. 맞으면 한 번 더 눌러 주세요.';
+      msg.className='hint up';f.dataset.ok=okKey;f.querySelector('button[type=submit]').textContent='맞습니다, 기록하기';return}
+    A.addEntry(e);const notice=A.itemMarginNotice(i,from);
+    A.toast(from+'부터 '+A.eText(e)+'(으)로 기록했습니다.',{action:{label:'되돌리기',fn:()=>{A.undo();A.renderCell(el,i,c,opts)}}});
+    A.renderCell(el,i,c,Object.assign({},opts,{notice}));
   });
   el.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
     if(btn.dataset.armed){A.deleteEntry(btn.dataset.del);A.toast('기록을 삭제했습니다.');A.renderCell(el,i,c,opts)}
@@ -553,10 +622,10 @@ A.mountHistory=function(el,opts){
     lastDesc='조건: '+act.join(' · ')+' · '+rows.length+'건 (인상 '+up+', 인하 '+down+')';
     const shown=rows.slice(0,600);
     if(opts.cards){
-      out.innerHTML='<div class="cards">'+shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<div class="card click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><div class="top"><span class="model">'+esc(A.itemName(it))+'</span><span class="num hint">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</span></div><div class="sub">'+esc(c.name)+' · '+esc(A.itemLabel(it))+'</div><div class="vals">'+(p?'<span class="hint">'+esc(A.eText(p))+' →</span>':'')+'<b>'+esc(A.eText(e))+'</b>'+A.deltaHtml(x)+'</div><div class="sub">'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+(e.note?' '+esc(e.note):'')+'</div></div>'}).join('')+'</div>';
+      out.innerHTML='<div class="cards">'+shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<div class="card click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><div class="top"><span class="model">'+esc(A.itemName(it))+'</span><span class="num hint">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</span></div><div class="sub">'+esc(c.name)+' · '+esc(A.itemLabel(it))+'</div><div class="vals">'+(p?'<span class="hint">'+esc(A.eText(p))+' →</span>':'')+'<b>'+esc(A.eText(e))+'</b>'+A.deltaHtml(x)+'</div><div class="sub">'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+(e.note?' '+esc(e.note):'')+(e.by?' · '+esc(e.by):'')+'</div></div>'}).join('')+'</div>';
     }else{
       out.innerHTML='<div class="tbl-wrap section" style="padding:6px"><table class="list"><thead><tr><th>적용일</th><th>구분</th><th>모델</th><th>거래처</th><th class="r">이전</th><th class="r">변경</th><th class="r">증감</th><th>사유</th><th>비고</th><th>입력</th></tr></thead><tbody>'+
-      shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<tr class="click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><td class="num">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</td><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+(p?esc(A.eText(p)):'<span class="hint">-</span>')+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(x)+'</td><td>'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+'</td><td>'+esc(e.note||'')+'</td><td class="num hint">'+esc(shortDT(e.at))+'</td></tr>'}).join('')+'</tbody></table></div>';
+      shown.map(({e,p,x})=>{const it=A.ITEM.get(e.item),c=A.COL.get(e.col);return '<tr class="click" data-i="'+esc(e.item)+'" data-c="'+esc(e.col)+'"><td class="num">'+esc(e.from)+(e.from>today()?' <span class="tag fut">예정</span>':'')+'</td><td>'+esc(A.itemLabel(it))+'</td><td class="num">'+esc(it.model)+'</td><td>'+esc(c.name)+'</td><td class="r num">'+(p?esc(A.eText(p)):'<span class="hint">-</span>')+'</td><td class="r num"><b>'+esc(A.eText(e))+'</b></td><td class="r">'+A.deltaHtml(x)+'</td><td>'+(e.base?'<span class="tag base">기준 단가</span>':'<span class="tag">'+esc(e.reason||'')+'</span>')+'</td><td>'+esc(e.note||'')+'</td><td class="num hint">'+esc(shortDT(e.at))+(e.by?' · '+esc(e.by):'')+'</td></tr>'}).join('')+'</tbody></table></div>';
     }
     if(rows.length>600)out.insertAdjacentHTML('beforeend','<p class="hint">처음 600건만 표시합니다. 조건을 좁혀 주세요.</p>');
   }
@@ -618,23 +687,32 @@ A.mountAnalysis=function(el,opts){
 /* 환율 */
 A.mountFx=function(el){
   function refresh(){
-    const fx=[...A.DB.fx].sort((a,b)=>a.date<b.date?1:-1);
-    const inp=(f,k)=>'<input type="number" step="0.01" data-k="'+k+'" value="'+esc(f[k]==null?'':f[k])+'" style="width:100px;text-align:right">';
-    el.innerHTML='<div class="row" style="justify-content:space-between"><h2>환율 (외화 매입가 환산용)</h2><button class="btn small" type="button" data-fxadd>환율 추가</button></div><p class="hint">적용일부터 다음 환율 전까지 쓰입니다. 1 EUR, 1 RMB가 몇 원인지 입력하세요.</p>'+
-      (fx.length?'<div class="tbl-wrap"><table class="list"><thead><tr><th>적용일</th><th class="r">EUR</th><th class="r">RMB</th><th class="r">USD</th><th></th></tr></thead><tbody>'+fx.map(f=>'<tr data-fx="'+esc(f.id)+'"><td><input type="date" data-k="date" value="'+esc(f.date)+'" style="width:140px"></td><td class="r">'+inp(f,'EUR')+'</td><td class="r">'+inp(f,'RMB')+'</td><td class="r">'+inp(f,'USD')+'</td><td class="r"><button class="btn small danger" type="button" data-fxdel="'+esc(f.id)+'">삭제</button></td></tr>').join('')+'</tbody></table></div>'
-      :'<div class="empty"><b>환율이 아직 없습니다.</b>LOCK SEAL(EUR), STOPPER(RMB) 마진을 보려면 환율을 추가하세요.</div>');
+    const cols=A.fxColumns(),fx=[...A.DB.fx].sort((a,b)=>a.date<b.date?1:-1);
+    const inp=(f,k)=>'<input type="number" step="any" data-k="'+k+'" value="'+esc(f[k]==null?'':f[k])+'" style="width:96px;text-align:right">';
+    el.innerHTML='<div class="row" style="justify-content:space-between"><h2>환율 (외화 → 원)</h2><div class="row"><button class="btn small" type="button" data-fxcur>통화 추가</button><button class="btn small" type="button" data-fxadd>환율 추가</button></div></div><p class="hint">적용일부터 다음 환율 전까지 쓰입니다. 모든 통화는 <b>1단위당 원</b>으로 입력하세요(예: 1 JPY = 9.2원). 100엔 기준으로 고시된 값은 100으로 나눠 넣습니다.</p>'+
+      (fx.length?'<div class="tbl-wrap"><table class="list"><thead><tr><th>적용일</th>'+cols.map(c=>'<th class="r">1 '+esc(c)+'</th>').join('')+'<th></th></tr></thead><tbody>'+fx.map(f=>'<tr data-fx="'+esc(f.id)+'"><td><input type="date" data-k="date" value="'+esc(f.date)+'" style="width:140px"></td>'+cols.map(c=>'<td class="r">'+inp(f,c)+'</td>').join('')+'<td class="r"><button class="btn small danger" type="button" data-fxdel="'+esc(f.id)+'">삭제</button></td></tr>').join('')+'</tbody></table></div>'
+      :'<div class="empty"><b>환율이 아직 없습니다.</b>외화 단가의 마진과 원화 환산을 보려면 환율을 추가하세요.</div>');
   }
   el.addEventListener('click',ev=>{
-    if(ev.target.closest('[data-fxadd]')){A.DB.fx.push({id:uid('fx'),date:today(),EUR:null,RMB:null,USD:null});A.touch();refresh();return}
-    const b=ev.target.closest('[data-fxdel]');if(!b)return;if(b.dataset.armed){A.DB.fx=A.DB.fx.filter(x=>x.id!==b.dataset.fxdel);A.DB.deleted.push(b.dataset.fxdel);A.touch();refresh()}else{b.dataset.armed='1';b.textContent='한 번 더'}
+    if(ev.target.closest('[data-fxadd]')){A.DB.fx.push({id:uid('fx'),date:today()});A.touch(1,'환율 추가');refresh();return}
+    if(ev.target.closest('[data-fxcur]')){A.pickCurrency(code=>{if(!code||code==='KRW')return;if(!A.fxColumns().includes(code)){A.DB.fxCurs.push(code);A.touch(1,'환율 통화 추가')}refresh();A.toast(code+' 칸을 추가했습니다.')});return}
+    const b=ev.target.closest('[data-fxdel]');if(!b)return;
+    if(b.dataset.armed){A.DB.fx=A.DB.fx.filter(x=>x.id!==b.dataset.fxdel);A.DB.deleted.push(b.dataset.fxdel);A.touch(1,'환율 삭제');refresh()}else{b.dataset.armed='1';b.textContent='한 번 더'}
   });
-  el.addEventListener('change',ev=>{const i=ev.target.closest('input[data-k]');if(!i)return;const f=A.DB.fx.find(x=>x.id===i.closest('tr').dataset.fx);if(!f)return;const k=i.dataset.k;f[k]=k==='date'?i.value:(i.value===''?null:Number(i.value));A.touch()});
+  el.addEventListener('change',ev=>{const i=ev.target.closest('input[data-k]');if(!i)return;const f=A.DB.fx.find(x=>x.id===i.closest('tr').dataset.fx);if(!f)return;const k=i.dataset.k;f[k]=k==='date'?i.value:(i.value===''?null:Number(i.value));A.touch(1,'환율 수정')});
   refresh();return{refresh};
 };
 
 /* 설정 · 저장 · 가져오기 */
 A.mountSettings=function(el){
   el.innerHTML=
+  '<div class="section"><h2>기본 설정</h2>'+
+    '<label class="field"><span>입력자 이름</span><input type="text" name="userName" placeholder="단가를 기록할 때 이력에 남습니다" autocomplete="off"></label>'+
+    '<p class="hint">구글에 처음 로그인하면 계정 이름이 자동으로 들어갑니다. 바꿔도 됩니다.</p>'+
+    '<div class="form"><label class="field"><span>큰 변동 경고 기준 (%)</span><input type="number" name="warnPct" min="0" step="1"></label><label class="field"><span>저마진 기준 (판매가 대비 %)</span><input type="number" name="lowMargin" step="1"></label></div>'+
+    '<p class="hint">단가를 입력할 때 기존보다 이 비율 이상 달라지면 한 번 더 확인합니다(0이면 끔). 마진율이 저마진 기준보다 낮으면 주황, 마이너스면 빨강으로 표시합니다.</p>'+
+    '<label class="field"><span>거래처별 단가표에 넣을 회사명</span><input type="text" name="company" placeholder="예: OO산업"></label>'+
+    '<label class="field"><span>단가표 안내 문구</span><input type="text" name="sheetNote" placeholder="예: 부가세 별도 / 문의 02-000-0000"></label></div>'+
   '<div class="section"><h2>구글 드라이브 연결</h2>'+
     '<label class="field"><span>구글 클라이언트 ID</span><input type="text" name="clientId" placeholder="123456-abc.apps.googleusercontent.com" autocomplete="off"></label>'+
     '<p class="hint">처음 한 번만 입력합니다. 만드는 방법은 저장소의 README에 있습니다. 이 기기 브라우저에만 저장됩니다.</p>'+
@@ -652,7 +730,7 @@ A.mountSettings=function(el){
     '<div data-import></div></div>'+
   '<div class="section"><h2>백업 파일 · 초기화</h2><div class="row"><button class="btn" type="button" data-act="jsonOut">백업 파일 내려받기</button><label class="btn" for="jsonIn">백업 파일 불러오기</label><input type="file" id="jsonIn" accept=".json,application/json" hidden><button class="btn danger" type="button" data-act="wipe">이 기기 데이터 지우기</button></div><p class="hint" data-bstatus>이 기기에도 임시 보관되지만, 드라이브에 저장해야 다른 기기에서 볼 수 있습니다.</p></div>';
   const g=n=>el.querySelector('[name="'+n+'"]');
-  const fill=()=>{for(const k of ['clientId','path','prefix'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
+  const fill=()=>{for(const k of ['clientId','path','prefix','userName','warnPct','lowMargin','company','sheetNote'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
   fill();
   el.querySelectorAll('[data-status]').forEach(s=>{s.textContent=A.statusText.msg||(A.settings.clientId?(A.hasToken()?'구글에 로그인돼 있습니다.':'저장하거나 불러오면 구글 로그인 창이 뜹니다.'):'구글 클라이언트 ID를 입력하면 드라이브에 저장할 수 있습니다.');s.className='status-line'+(A.statusText.cls?' '+A.statusText.cls:'')});
   el.addEventListener('change',ev=>{
@@ -661,6 +739,8 @@ A.mountSettings=function(el){
     if(n==='prefix')A.settings.prefix=ev.target.value.trim()||'단가DB';
     if(n==='clientId'){A.settings.clientId=ev.target.value.trim();if(A.settings.clientId)A.loadGis().catch(()=>{})}
     if(n==='autoSync')A.settings.autoSync=ev.target.checked;
+    if(n==='userName'||n==='company'||n==='sheetNote')A.settings[n]=ev.target.value.trim();
+    if(n==='warnPct'||n==='lowMargin'){const v=ev.target.value.trim();A.settings[n]=v===''?(n==='warnPct'?30:10):Number(v)}
     A.saveSettings();
   });
   let files=[];
@@ -702,7 +782,7 @@ A.addItemDialog=function(preset){
   const NEW='__new__';
   const opt=(v,l,sel)=>'<option value="'+esc(v)+'"'+(sel?' selected':'')+'>'+esc(l)+'</option>';
   const buys=A.DB.columns.filter(c=>c.group==='buy'),sells=A.DB.columns.filter(c=>c.group!=='buy');
-  const priceRow=c=>'<tr><td>'+esc(c.name)+'</td><td><input type="text" inputmode="decimal" data-pc="'+esc(c.key)+'" placeholder="-" style="text-align:right"></td><td><select data-pcur="'+esc(c.key)+'"><option value="KRW">원</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="USD">USD</option></select></td></tr>';
+  const priceRow=c=>'<tr><td>'+esc(c.name)+'</td><td><input type="text" inputmode="decimal" data-pc="'+esc(c.key)+'" placeholder="-" style="text-align:right"></td><td><select data-pcur="'+esc(c.key)+'" class="cursel">'+A.curOptions('KRW')+'</select></td></tr>';
   openModal('<form class="additem" autocomplete="off"><h2>품목 추가</h2>'+
     '<div class="form"><label class="field"><span>대구분</span><select name="c1sel">'+A.cats().map(c=>opt(c,c,c===preset.cat1)).join('')+opt(NEW,'+ 새 대구분',!A.cats().length)+'</select></label>'+
     '<label class="field" data-new1 hidden><span>새 대구분 이름</span><input type="text" name="c1new"></label>'+
@@ -734,8 +814,8 @@ A.addItemDialog=function(preset){
     if(bad)return err(bad+' 단가를 숫자로 입력하세요.');
     if(prices.length&&!f.from.value)return err('적용일을 입력하세요.');
     let last=null;
-    for(const m of models){const it=A.addItem({cat1:c1,cat2:c2,model:m});last=it;
-      for(const pr of prices)A.addEntry({item:it.id,col:pr.col,v:pr.v,t:pr.t,cur:pr.cur,from:f.from.value,reason:f.reason.value,note:''})}
+    A.batch('품목 추가',()=>{for(const m of models){const it=A.addItem({cat1:c1,cat2:c2,model:m});last=it;
+      for(const pr of prices)A.addEntry({item:it.id,col:pr.col,v:pr.v,t:pr.t,cur:pr.cur,from:f.from.value,reason:f.reason.value,note:''})}});
     A.toast((models.length>1?models.length+'개 품목':(models[0]||c2)+' 품목')+'을 추가했습니다'+(prices.length?' (단가 '+prices.length+'곳)':'')+'. 드라이브 저장 전입니다.');
     if(preset.onDone)preset.onDone(last,models.length);
   },'wide');
@@ -756,7 +836,7 @@ A.addItemDialog=function(preset){
   f.c1sel.addEventListener('change',()=>{preset.cat2=null;fillC2()});
   f.c2sel.addEventListener('change',fillC2b);
   f.copy.addEventListener('change',()=>{const id=f.copy.value;const d=f.from.value||today();
-    f.querySelectorAll('[data-pc]').forEach(inp=>{const k=inp.dataset.pc;const e=id?A.entryAt(id,k,d):null;inp.value=e?(isNum(e)?String(e.v):(e.t||'')):'';f.querySelector('[data-pcur="'+k+'"]').value=e&&e.cur?e.cur:'KRW'})});
+    f.querySelectorAll('[data-pc]').forEach(inp=>{const k=inp.dataset.pc;const e=id?A.entryAt(id,k,d):null;inp.value=e?(isNum(e)?String(e.v):(e.t||'')):'';A.setCur(f.querySelector('[data-pcur="'+k+'"]'),e&&e.cur?e.cur:'KRW')})});
   fillC2();
   if(f.c1sel.value===NEW)f.c1new.focus();else f.models.focus();
 };
@@ -776,10 +856,10 @@ function parsePrice(raw){
   if(typeof raw==='number')return{v:raw,t:null,cur:null};
   let s=String(raw).trim();if(!s)return null;
   if(s==='-')return{v:null,t:'-',cur:'KRW'};
-  let cur=null;const m=/^(EUR|RMB|CNY|USD|KRW|원|€|\$|¥)?\s*([+-]?[\d,]*\.?\d+)\s*(EUR|RMB|CNY|USD|KRW|원|€|\$|¥)?$/i.exec(s.replace(/\s+/g,' '));
+  const m=/^([A-Za-z]{3}|원|₩|€|\$|£)?\s*([+-]?[\d,]*\.?\d+)\s*([A-Za-z]{3}|원)?$/.exec(s.replace(/\s+/g,' '));
   if(!m)return{bad:true,raw:s};
-  const tag=(m[1]||m[3]||'').toUpperCase();
-  cur=tag==='원'||tag==='KRW'?'KRW':tag==='€'||tag==='EUR'?'EUR':tag==='$'||tag==='USD'?'USD':tag==='¥'||tag==='RMB'||tag==='CNY'?'RMB':null;
+  const tag=m[1]||m[3]||'';let cur=null;
+  if(tag){cur=tag==='원'||tag==='₩'?'KRW':tag==='€'?'EUR':tag==='$'?'USD':tag==='£'?'GBP':A.normCur(tag);if(!cur)return{bad:true,raw:s}}
   return{v:Number(m[2].replace(/,/g,'')),t:null,cur};
 }
 A.exportTemplate=async function(d){
@@ -856,10 +936,12 @@ A.bulkDialog=function(opts){
     const pick=sel=>[...f.querySelectorAll(sel)].filter(x=>x.checked).map(x=>Number(x.value));
     const ch=pick('[data-ck="c"]'),ni=pick('[data-ck="n"]'),bl=pick('[data-ck="b"]');
     if(!ch.length&&!ni.length&&!bl.length)return err('반영할 항목을 하나 이상 선택하세요.');
-    let n=0;
+    let n=0,k=0;
+    A.batch('엑셀 일괄 변경',()=>{
     for(const i of ch){const c=res.changes[i];A.addEntry({item:c.it.id,col:c.col.key,v:c.next.v,t:c.next.t,cur:c.next.cur,from,reason,note:note||'엑셀 일괄 변경'});n++}
     for(const i of bl){const c=res.blanks[i];A.addEntry({item:c.it.id,col:c.col.key,v:null,t:null,cur:c.cur.cur||'KRW',from,reason:'거래 중단',note:note||'엑셀 일괄 변경'});n++}
-    let k=0;for(const i of ni){const x=res.newItems[i];if(A.DB.items.some(y=>y.cat1===x.cat1&&y.cat2===x.cat2&&y.model===x.model))continue;const it=A.addItem({cat1:x.cat1,cat2:x.cat2,model:x.model});k++;for(const p of x.prices){A.addEntry({item:it.id,col:p.col.key,v:p.v,t:p.t,cur:p.cur,from,reason:'신규 거래',note:note||'엑셀 일괄 변경'});n++}}
+    for(const i of ni){const x=res.newItems[i];if(A.DB.items.some(y=>y.cat1===x.cat1&&y.cat2===x.cat2&&y.model===x.model))continue;const it=A.addItem({cat1:x.cat1,cat2:x.cat2,model:x.model});k++;for(const p of x.prices){A.addEntry({item:it.id,col:p.col.key,v:p.v,t:p.t,cur:p.cur,from,reason:'신규 거래',note:note||'엑셀 일괄 변경'});n++}}
+    });
     A.toast('단가 '+n+'건'+(k?', 새 품목 '+k+'개':'')+'를 반영했습니다. 드라이브에 저장하세요.');
   },'wide');
   const f=document.querySelector('#modal form.bulk');let res=null;
@@ -874,7 +956,7 @@ A.bulkDialog=function(opts){
     if(R.unknownCols.length)h+='<p class="hint up">모르는 거래처 열은 반영하지 않습니다: '+esc(R.unknownCols.join(', '))+'. 앱에서 거래처를 먼저 추가하세요.</p>';
     if(R.bad.length)h+='<p class="hint up">읽지 못한 칸 '+R.bad.length+'개 (반영 안 함): '+esc(R.bad.slice(0,8).map(b=>b.row+'행'+(b.col?' '+b.col:'')+' "'+b.raw+'"').join(', '))+(R.bad.length>8?' 외':'')+'</p>';
     const tbl=(rows,kind)=>'<div class="tbl-wrap" style="max-height:300px;overflow:auto"><table class="list"><thead><tr><th><input type="checkbox" data-all="'+kind+'" checked aria-label="전체 선택"></th><th>모델</th><th>거래처</th><th class="r">지금</th><th class="r">새 단가</th><th class="r">증감</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-    if(R.changes.length)h+='<h2 style="margin-top:6px">바뀐 단가</h2>'+tbl(R.changes.map((c,i)=>{const nx={v:c.next.v,t:c.next.t,cur:c.next.cur};return '<tr><td><input type="checkbox" data-ck="c" value="'+i+'" checked></td><td class="num">'+esc(A.itemName(c.it))+'<br><span class="hint">'+esc(A.itemLabel(c.it))+'</span></td><td>'+esc(c.col.name)+'</td><td class="r num">'+esc(A.eText(c.cur))+'</td><td class="r num"><b>'+esc(A.eText(nx))+'</b></td><td class="r">'+A.deltaHtml(A.delta(c.cur,nx))+'</td></tr>'}).join(''),'c');
+    if(R.changes.length)h+='<h2 style="margin-top:6px">바뀐 단가</h2>'+tbl(R.changes.map((c,i)=>{const nx={v:c.next.v,t:c.next.t,cur:c.next.cur};return '<tr><td><input type="checkbox" data-ck="c" value="'+i+'" checked></td><td class="num">'+esc(A.itemName(c.it))+'<br><span class="hint">'+esc(A.itemLabel(c.it))+'</span></td><td>'+esc(c.col.name)+'</td><td class="r num">'+esc(A.eText(c.cur))+'</td><td class="r num"><b>'+esc(A.eText(nx))+'</b></td><td class="r">'+A.deltaHtml(A.delta(c.cur,nx))+(A.isBig(c.cur,nx)?' <span class="tag warn">큰 변동</span>':'')+'</td></tr>'}).join(''),'c');
     if(R.newItems.length)h+='<h2 style="margin-top:6px">새 품목</h2><div class="tbl-wrap"><table class="list"><tbody>'+R.newItems.map((x,i)=>'<tr><td><input type="checkbox" data-ck="n" value="'+i+'" checked></td><td>'+esc([x.cat1,x.cat2].filter(Boolean).join(' › '))+' › <b class="num">'+esc(x.model||'(모델 없음)')+'</b><br><span class="hint">단가 '+x.prices.length+'곳: '+esc(x.prices.slice(0,6).map(p=>p.col.name+' '+A.eText(p)).join(', '))+(x.prices.length>6?' …':'')+'</span></td></tr>').join('')+'</tbody></table></div>';
     if(R.blanks.length)h+='<details style="margin-top:6px"><summary class="hint">비어 있는 칸 '+R.blanks.length+'개는 변경 없음으로 둡니다. 거래 없음으로 바꿀 칸이 있으면 펼쳐서 고르세요.</summary>'+tbl(R.blanks.map((c,i)=>'<tr><td><input type="checkbox" data-ck="b" value="'+i+'"></td><td class="num">'+esc(A.itemName(c.it))+'</td><td>'+esc(c.col.name)+'</td><td class="r num">'+esc(A.eText(c.cur))+'</td><td class="r">거래 없음</td><td></td></tr>').join(''),'b').replace('data-all="b" checked','data-all="b"')+'</details>';
     const any=R.changes.length||R.newItems.length||R.blanks.length;
