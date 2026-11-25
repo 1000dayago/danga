@@ -148,3 +148,5 @@ table.list{border-collapse:collapse;width:100%;font-size:13px}
 .pricein input{width:110px;margin-left:auto;display:block}
 .pricein select{width:80px}
 @media (max-width:520px){.additem .form{grid-template-columns:1fr}.pricein input{width:90px}}
+.modal-card form{display:flex;flex-direction:column;gap:12px}
+.modal-card form h2+p.hint{margin-top:-8px}

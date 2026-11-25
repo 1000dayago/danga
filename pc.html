@@ -60,6 +60,8 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .grid td.v.txt{text-align:left;font-family:var(--font-ui);font-size:12px;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .grid td.v.fut::after{content:"";position:absolute;top:0;right:0;border-top:7px solid var(--future);border-left:7px solid transparent}
 .grid tbody tr:hover td.md{color:var(--accent)}
+.grid .editable{cursor:pointer}
+.grid th.editable:hover,.grid td.md.editable:hover{text-decoration:underline;color:var(--accent)}
 .grid td.neg{color:var(--up);font-weight:600}
 .grid td.low{color:var(--warn)}
 .grid td.na{color:var(--muted);font-family:var(--font-ui);font-size:11px;text-align:center}
@@ -88,6 +90,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
     <a href="#history" data-view="history">이력 검색</a>
     <a href="#analysis" data-view="analysis">변경 분석</a>
     <a href="#margin" data-view="margin">마진 · 환율</a>
+    <a href="#manage" data-view="manage">품목 · 거래처 관리</a>
     <a href="#setup" data-view="setup">저장 · 설정</a>
   </nav>
 </header>
@@ -102,7 +105,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
       <label class="check"><input type="checkbox" id="tHideEmpty"> 빈 거래처 열 숨기기</label>
     </div>
     <div class="toolbar">
-      <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span><span class="cur">EUR</span><span class="cur">RMB</span>외화, 나머지는 원</span><span>셀을 누르면 이력 · 단가 변경</span></div>
+      <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span><span class="cur">EUR</span><span class="cur">RMB</span>외화, 나머지는 원</span><span>셀: 이력 · 단가 변경 · MODEL/거래처 이름: 수정 · 삭제</span></div>
       <div class="row" style="margin-left:auto"><button class="btn small" type="button" id="btnAddItem">품목 추가</button><button class="btn small" type="button" id="btnAddCol">거래처 추가</button><button class="btn small" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small" type="button" id="btnXlsx">엑셀로 내보내기</button><button class="btn small" type="button" id="btnPdf">PDF로 저장</button></div>
     </div>
     <div id="tEmpty" hidden></div>
@@ -122,6 +125,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
     <div class="scroller" id="mScroll"><table class="grid" id="mGrid"></table></div>
     <div class="section" id="fxBox"></div>
   </section>
+  <section class="view" id="v-manage" hidden><div class="cols-2" id="manageBox"></div></section>
   <section class="view" id="v-setup" hidden><div class="cols-2" id="setupBox"></div></section>
 </main>
 
@@ -136,20 +140,20 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 (function(){
 "use strict";
 const A=Danga,{$,esc,today,addDays}=A;
-const VIEWS=['table','history','analysis','margin','setup'];
-let hist,ana,fx,setup,selCell=null;
+const VIEWS=['table','history','analysis','margin','manage','setup'];
+let hist,ana,fx,setup,manage,selCell=null;
 
 function gridHtml(rows,cols,cellFn,opt){
   opt=opt||{};const buy=cols.filter(c=>c.group==='buy'),sell=cols.filter(c=>c.group!=='buy');
   let h='<thead><tr class="g"><th class="c1" rowspan="2">대구분</th><th class="c2" rowspan="2">소구분</th><th class="md" rowspan="2">MODEL</th>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+'</th>';
-  h+='</tr><tr class="h">'+cols.map(c=>'<th class="'+(c.group==='buy'?'buy':'')+'">'+esc(c.name)+'</th>').join('')+'</tr></thead><tbody>';
+  h+='</tr><tr class="h">'+cols.map(c=>'<th class="'+(c.group==='buy'?'buy':'')+(c.key.startsWith('__')?'':' editable')+'"'+(c.key.startsWith('__')?'':' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"')+'>'+esc(c.name)+'</th>').join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   for(let r=0;r<rows.length;r++){const it=rows[r];h+='<tr>';
     if(r===0||rows[r-1].cat1!==it.cat1){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1)n++;h+='<td class="c1" rowspan="'+n+'">'+esc(it.cat1)+'</td>'}
     if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;h+='<td class="c2" rowspan="'+n+'">'+esc(it.cat2)+'</td>'}
-    h+='<td class="md">'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
+    h+='<td class="md editable" data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제">'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
   return h+'</tbody>';
 }
 function emptyState(){return '<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>처음이면 원본 단가.xlsx를 가져오고, 다른 기기에서 저장한 적이 있으면 드라이브에서 불러오세요.</span><a class="btn primary" href="#setup">저장 · 설정으로 가기</a></div>'}
@@ -192,6 +196,7 @@ function openCell(i,c){
 function closeDrawer(){$('#drawer').hidden=true;$('#scrim').hidden=true;selCell=null;if(cur()==='table')renderTable()}
 $('#dClose').addEventListener('click',closeDrawer);$('#scrim').addEventListener('click',closeDrawer);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('#modal')&&!$('#modal').hidden)A.closeModal();else if(!$('#drawer').hidden)closeDrawer()}});
+document.addEventListener('click',ev=>{const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}});
 document.addEventListener('click',ev=>{const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#drawer'))openCell(t.dataset.i,t.dataset.c)});
 
 const cur=()=>{const v=location.hash.slice(1);return VIEWS.includes(v)?v:'table'};
@@ -201,6 +206,7 @@ function render(){
   else if(v==='history'){if(!hist)hist=A.mountHistory($('#v-history'));else hist.refresh()}
   else if(v==='analysis'){if(!ana)ana=A.mountAnalysis($('#anaBox'));else ana.refresh()}
   else if(v==='margin'){renderMargin();if(!fx)fx=A.mountFx($('#fxBox'));else fx.refresh()}
+  else if(v==='manage'){if(!manage)manage=A.mountManage($('#manageBox'));else manage.refresh()}
   else if(v==='setup'){if(!setup)setup=A.mountSettings($('#setupBox'));else setup.refresh()}
 }
 function route(){const v=cur();VIEWS.forEach(x=>$('#v-'+x).hidden=x!==v);document.querySelectorAll('.tabs a').forEach(a=>{if(a.dataset.view===v)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});render()}

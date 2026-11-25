@@ -103,6 +103,8 @@ main{padding-block:12px 24px;display:flex;flex-direction:column;gap:12px}
       <label class="field"><span>마진 원가 기준</span><select id="basis"><option value="hana">하나테크 우선, 없으면 덕우</option><option value="dukwoo">덕우 우선, 없으면 하나테크</option></select></label></div>
     <div class="section"><h2>품목 · 거래처</h2><div class="links"><button class="btn" type="button" id="btnAddItem">품목 추가</button><button class="btn" type="button" id="btnAddCol">거래처 추가</button><a class="btn" href="pc.html">PC 화면으로</a></div></div>
     <div class="section" id="fxBox"></div>
+    <h2 style="margin-top:8px">품목 · 거래처 관리</h2>
+    <div id="manageBox" style="display:flex;flex-direction:column;gap:12px"></div>
   </section>
 </main>
 
@@ -125,7 +127,7 @@ main{padding-block:12px 24px;display:flex;flex-direction:column;gap:12px}
 "use strict";
 const A=Danga,{$,esc,today,addDays}=A;
 const VIEWS=['prices','item','history','analysis','more'];
-let cat='',curItem=A.LS.get('danga.m.item'),showAll=false,showMargin=true,hist,ana,fx,setup,sheetCell=null;
+let cat='',curItem=A.LS.get('danga.m.item'),showAll=false,showMargin=true,hist,ana,fx,setup,manage,sheetCell=null;
 const date=()=>$('#date').value||today();
 const basis=()=>$('#basis').value;
 
@@ -168,11 +170,12 @@ function renderItem(){
     return '<div class="prow'+(A.isChanged(e,since)?' chg':'')+(has?'':' none')+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" role="button" tabindex="0"><span class="n">'+esc(c.name)+'</span><span class="v">'+(has?A.eHtml(e):'없음')+'</span>'+(sub.length?'<span class="sub">'+sub.join('')+'</span>':'')+'</div>';
   };
   const buy=A.DB.columns.filter(c=>c.group==='buy').map(row).join(''),sell=A.DB.columns.filter(c=>c.group!=='buy').map(row).join('');
-  el.innerHTML='<div class="detail-head"><span class="hint">'+esc(A.itemLabel(it))+'</span><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
+  el.innerHTML='<div class="detail-head"><div class="row" style="justify-content:space-between;align-items:flex-start"><span class="hint">'+esc(A.itemLabel(it))+'</span><button class="btn small" type="button" data-edititem>품목 수정 · 삭제</button></div><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
     '<div class="row" style="margin-top:10px"><label class="check"><input type="checkbox" id="optAll"'+(showAll?' checked':'')+'> 거래 없는 곳도 보기</label><label class="check"><input type="checkbox" id="optMg"'+(showMargin?' checked':'')+'> 마진 보기</label></div>'+
     '<div class="grp">매입가</div><div class="items">'+(buy||'<div class="prow none"><span class="n hint">매입가 없음</span></div>')+'</div>'+
     '<div class="grp">판매가</div><div class="items">'+(sell||'<div class="prow none"><span class="n hint">판매처 없음 · "거래 없는 곳도 보기"를 켜고 추가하세요</span></div>')+'</div>';
   $('#optAll').addEventListener('change',e=>{showAll=e.target.checked;renderItem()});
+  el.querySelector('[data-edititem]').addEventListener('click',()=>A.editItemDialog(it.id,{onDelete:()=>{location.hash='#prices'}}));
   $('#optMg').addEventListener('change',e=>{showMargin=e.target.checked;renderItem()});
 }
 
@@ -198,7 +201,7 @@ function render(){
   else if(v==='item')renderItem();
   else if(v==='history'){if(!hist)hist=A.mountHistory($('#v-history'),{cards:true});else hist.refresh()}
   else if(v==='analysis'){if(!ana)ana=A.mountAnalysis($('#v-analysis'),{cards:true});else ana.refresh()}
-  else if(v==='more'){if(!fx)fx=A.mountFx($('#fxBox'));if(!setup)setup=A.mountSettings($('#setupBox'));else setup.refresh()}
+  else if(v==='more'){if(!fx)fx=A.mountFx($('#fxBox'));if(!setup)setup=A.mountSettings($('#setupBox'));else setup.refresh();if(!manage)manage=A.mountManage($('#manageBox'));else manage.refresh()}
 }
 function route(){
   const v=cur();VIEWS.forEach(x=>$('#v-'+x).hidden=x!==v);
@@ -224,7 +227,7 @@ $('#mXlsx').addEventListener('click',()=>{if(!noData())A.exportMarginXlsx(date()
 $('#mPdf').addEventListener('click',()=>{if(!noData())A.printMargin(date(),basis())});
 $('#btnXlsx').addEventListener('click',()=>A.exportXlsx(date()).then(()=>A.toast('엑셀 파일을 내려받았습니다.')).catch(e=>A.toast(e.message)));
 
-let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy();clearTimeout(rT);rT=setTimeout(()=>{if(cur()!=='more'&&!sheetCell)render();if(cur()==='more'&&fx)fx.refresh()},30)});
+let rT;A.onChange(()=>{A.renderPill($('#pill'));$('#btnSave').disabled=A.isBusy();clearTimeout(rT);rT=setTimeout(()=>{if(cur()!=='more'&&!sheetCell)render();if(cur()==='more'){if(fx)fx.refresh();if(manage)manage.refresh()}},30)});
 
 $('#date').value=today();$('#dateNote').textContent='(오늘)';
 const b=A.LS.get('danga.m.basis');if(b)$('#basis').value=b;

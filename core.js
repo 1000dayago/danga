@@ -33,9 +33,9 @@ let toastT;
 A.toast=function(msg){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3800)};
 
 /* ---------- state ---------- */
-const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[]});
+const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[]});
 const validDb=d=>d&&Array.isArray(d.columns)&&Array.isArray(d.items)&&Array.isArray(d.entries);
-const normDb=d=>{if(!Array.isArray(d.fx))d.fx=[];if(!Array.isArray(d.deleted))d.deleted=[];return d};
+const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log'])if(!Array.isArray(d[k]))d[k]=[];return d};
 A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null},LS.get('danga.settings')||{});
 A.saveSettings=()=>LS.set('danga.settings',A.settings);
 const draft=LS.get('danga.draft');
@@ -101,16 +101,63 @@ A.addItem=it=>{
 A.addColumn=c=>{c.key=uid('c');if(c.group==='buy'){let k=0;A.DB.columns.forEach((x,i)=>{if(x.group==='buy')k=i+1});A.DB.columns.splice(k,0,c)}else A.DB.columns.push(c);A.reindex();A.touch();return c};
 
 /* merge two versions: entries are immutable and carry unique ids, so a union minus tombstones is safe */
+/* keep items of one 대구분/소구분 together, in first-seen order */
+function regroup(items){
+  const o1=new Map(),o2=new Map();items.forEach((it,i)=>{if(!o1.has(it.cat1))o1.set(it.cat1,i);const k=it.cat1+'\u0000'+it.cat2;if(!o2.has(k))o2.set(k,i)});
+  return items.map((it,i)=>({it,i})).sort((a,b)=>(o1.get(a.it.cat1)-o1.get(b.it.cat1))||(o2.get(a.it.cat1+'\u0000'+a.it.cat2)-o2.get(b.it.cat1+'\u0000'+b.it.cat2))||(a.i-b.i)).map(x=>x.it);
+}
+const sortCols=cols=>cols.map((c,i)=>({c,i})).sort((a,b)=>((a.c.group==='buy'?0:1)-(b.c.group==='buy'?0:1))||(a.i-b.i)).map(x=>x.c);
+const insertInGroup=(items,it)=>{let idx=-1;items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2)idx=k});if(idx<0)items.forEach((x,k)=>{if(x.cat1===it.cat1)idx=k});if(idx<0)items.push(it);else items.splice(idx+1,0,it)};
+/* merge two versions: entries are immutable with unique ids (union minus tombstones);
+   items/columns carry 'upd' so the most recent rename/delete/restore wins */
 A.mergeDb=function(local,remote){
   local=normDb(clone(local));remote=normDb(clone(remote));
   const tomb=new Set([...local.deleted,...remote.deleted]);
   const byId=(mine,theirs)=>{const m=new Map();for(const o of theirs)m.set(o.id,o);for(const o of mine)m.set(o.id,o);return [...m.values()].filter(o=>!tomb.has(o.id))};
-  const items=local.items.slice();const have=new Set(items.map(i=>i.id));
-  for(const it of remote.items){if(have.has(it.id))continue;let idx=-1;items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2)idx=k});if(idx<0)items.forEach((x,k)=>{if(x.cat1===it.cat1)idx=k});if(idx<0)items.push(it);else items.splice(idx+1,0,it);have.add(it.id)}
-  const cols=local.columns.slice();const ck=new Set(cols.map(c=>c.key));
-  for(const c of remote.columns){if(ck.has(c.key))continue;if(c.group==='buy'){let k=0;cols.forEach((x,i)=>{if(x.group==='buy')k=i+1});cols.splice(k,0,c)}else cols.push(c);ck.add(c.key)}
-  return{columns:cols,items:items.filter(i=>!tomb.has(i.id)),entries:byId(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb]};
+  const newer=(a,b)=>!a?b:!b?a:((b.upd||'')>(a.upd||'')?b:a);
+  const pool=(act,rem,key)=>{const m=new Map();for(const o of act){delete o.removed;m.set(o[key],o)}for(const o of rem){o.removed=true;m.set(o[key],o)}return m};
+  const mergeSet=(la,lr,ra,rr,key,place)=>{
+    const L=pool(la,lr,key),R=pool(ra,rr,key);const ids=new Set([...L.keys(),...R.keys()]);const chosen=new Map();
+    for(const id of ids){if(tomb.has(id))continue;chosen.set(id,newer(L.get(id),R.get(id)))}
+    const act=[],done=new Set();
+    for(const o of la){const c=chosen.get(o[key]);if(c&&!c.removed){act.push(c);done.add(o[key])}}
+    for(const [id,c] of chosen){if(!c.removed&&!done.has(id))place(act,c)}
+    return{act,rem:[...chosen.values()].filter(c=>c.removed)};
+  };
+  const I=mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
+  const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
+  return{columns:sortCols(C.act),items:regroup(I.act),entries:byId(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log)};
 };
+
+/* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
+const updStamp=()=>new Date().toISOString();
+const logChange=text=>A.DB.log.push({id:uid('l'),at:nowIso(),text});
+const itemPath=it=>[it.cat1,it.cat2,it.model].filter(Boolean).join(' › ');
+const commit=()=>{A.reindex();A.touch()};
+A.findDupItem=(cat1,cat2,model,exceptId)=>A.DB.items.find(x=>x.id!==exceptId&&x.cat1===cat1&&x.cat2===cat2&&x.model===model);
+A.updateItem=function(id,patch){
+  const it=A.ITEM.get(id);if(!it)return;const before=itemPath(it);const moved=patch.cat1!==it.cat1||patch.cat2!==it.cat2;
+  Object.assign(it,patch,{upd:updStamp()});
+  if(moved){A.DB.items.splice(A.DB.items.indexOf(it),1);insertInGroup(A.DB.items,it)}
+  A.DB.items=regroup(A.DB.items);logChange('품목 수정: '+before+' → '+itemPath(it));commit();
+};
+A.removeItem=function(id){const k=A.DB.items.findIndex(x=>x.id===id);if(k<0)return;const it=A.DB.items.splice(k,1)[0];it.removed=true;it.upd=updStamp();A.DB.removedItems.push(it);logChange('품목 삭제: '+itemPath(it));commit()};
+A.restoreItem=function(id){const k=A.DB.removedItems.findIndex(x=>x.id===id);if(k<0)return;const it=A.DB.removedItems.splice(k,1)[0];
+  if(A.findDupItem(it.cat1,it.cat2,it.model))throw new Error('같은 이름의 품목이 이미 있어 복원할 수 없습니다. 먼저 그 품목의 이름을 바꾸세요.');
+  delete it.removed;it.upd=updStamp();insertInGroup(A.DB.items,it);logChange('품목 복원: '+itemPath(it));commit()};
+A.updateColumn=function(key,patch){const c=A.COL.get(key);if(!c)return;const before=c.name+(c.group==='buy'?'(매입)':'(판매)');Object.assign(c,patch,{upd:updStamp()});A.DB.columns=sortCols(A.DB.columns);logChange('거래처 수정: '+before+' → '+c.name+(c.group==='buy'?'(매입)':'(판매)'));commit()};
+A.removeColumn=function(key){const k=A.DB.columns.findIndex(x=>x.key===key);if(k<0)return;const c=A.DB.columns.splice(k,1)[0];c.removed=true;c.upd=updStamp();A.DB.removedColumns.push(c);logChange('거래처 삭제: '+c.name);commit()};
+A.restoreColumn=function(key){const k=A.DB.removedColumns.findIndex(x=>x.key===key);if(k<0)return;const c=A.DB.removedColumns[k];
+  if(A.DB.columns.some(x=>x.name===c.name))throw new Error('같은 이름의 거래처가 이미 있어 복원할 수 없습니다. 먼저 그 거래처의 이름을 바꾸세요.');
+  A.DB.removedColumns.splice(k,1);delete c.removed;c.upd=updStamp();A.DB.columns.push(c);A.DB.columns=sortCols(A.DB.columns);logChange('거래처 복원: '+c.name);commit()};
+A.renameCat=function(level,cat1,oldName,newName){
+  newName=norm(newName);if(!newName&&level===1)throw new Error('대구분 이름을 입력하세요.');
+  const all=A.DB.items.concat(A.DB.removedItems);const hit=all.filter(it=>level===1?it.cat1===oldName:(it.cat1===cat1&&it.cat2===oldName));
+  for(const it of hit){const nc1=level===1?newName:it.cat1,nc2=level===2?newName:it.cat2;if(!it.removed&&A.findDupItem(nc1,nc2,it.model,it.id)&&!hit.includes(A.findDupItem(nc1,nc2,it.model,it.id)))throw new Error('합치면 같은 모델이 겹칩니다: '+(it.model||'(모델 없음)'))}
+  for(const it of hit){if(level===1)it.cat1=newName;else it.cat2=newName;it.upd=updStamp()}
+  A.DB.items=regroup(A.DB.items);logChange((level===1?'대구분':'소구분')+' 이름 변경: '+(level===2?cat1+' › ':'')+(oldName||'(소구분 없음)')+' → '+(newName||'(소구분 없음)')+' (품목 '+hit.length+'개)');commit();return hit.length;
+};
+
 A.replaceDb=(db,opts)=>{A.DB=normDb(db);A.reindex();opts=opts||{};A.dirty=opts.dirty||0;if(opts.overwrite)A.sync.overwrite=true;A.persist();A.emit()};
 
 /* ---------- excel ---------- */
@@ -837,6 +884,94 @@ A.bulkDialog=function(opts){
     f.querySelector('[data-apply]').hidden=!any;
     f.querySelectorAll('[data-all]').forEach(a=>a.addEventListener('change',()=>f.querySelectorAll('[data-ck="'+a.dataset.all+'"]').forEach(x=>x.checked=a.checked)));
   }
+};
+
+/* ---------- 품목 · 거래처 수정 / 삭제 / 복원 ---------- */
+const NEWV='__new__';
+const optH=(v,l,sel)=>'<option value="'+esc(v)+'"'+(sel?' selected':'')+'>'+esc(l)+'</option>';
+const armBtn=(btn,label,fn)=>{if(btn.dataset.armed){fn();return}btn.dataset.armed='1';const o=btn.textContent;btn.textContent=label;setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.textContent=o}},5000)};
+A.editItemDialog=function(id,opts){
+  opts=opts||{};const it=A.ITEM.get(id);if(!it)return;
+  const nPrices=A.DB.columns.filter(c=>A.hasVal(A.entryAt(it.id,c.key,today()))).length,nHist=A.DB.entries.filter(e=>e.item===id&&!e.base).length;
+  openModal('<form class="edititem" autocomplete="off"><h2>품목 수정</h2><p class="hint">'+esc(itemPath(it))+'</p>'+
+    '<div class="form"><label class="field"><span>대구분</span><select name="c1sel">'+A.cats().map(c=>optH(c,c,c===it.cat1)).join('')+optH(NEWV,'+ 새 대구분',false)+'</select></label>'+
+    '<label class="field" data-new1 hidden><span>새 대구분 이름</span><input type="text" name="c1new"></label>'+
+    '<label class="field"><span>소구분</span><select name="c2sel"></select></label>'+
+    '<label class="field" data-new2 hidden><span>새 소구분 이름</span><input type="text" name="c2new"></label>'+
+    '<label class="field full"><span>MODEL</span><input type="text" name="model" value="'+esc(it.model)+'"></label></div>'+
+    '<p class="hint">대구분·소구분을 바꾸면 그 구분으로 옮겨집니다. 단가와 이력은 그대로 따라갑니다.</p>'+
+    '<div class="section" style="padding:10px"><b>품목 삭제</b><p class="hint">단종 등으로 더 이상 쓰지 않는 품목을 단가표에서 뺍니다. 현재 단가 '+nPrices+'곳, 변경 이력 '+nHist+'건은 지우지 않고 보관하며, 관리 화면에서 복원할 수 있습니다.</p><div class="row"><button class="btn danger" type="button" data-del>이 품목 삭제</button></div></div>'+
+    '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">저장</button></div></form>',f=>{
+    const err=m=>{f.querySelector('[data-err]').textContent=m;return false};
+    const c1=f.c1sel.value===NEWV?norm(f.c1new.value):f.c1sel.value,c2=f.c2sel.value===NEWV?norm(f.c2new.value):f.c2sel.value,md=norm(f.model.value);
+    if(!c1)return err('대구분을 입력하세요.');if(f.c2sel.value===NEWV&&!c2)return err('새 소구분 이름을 입력하세요.');if(!md&&!c2)return err('MODEL을 입력하세요.');
+    if(c1===it.cat1&&c2===it.cat2&&md===it.model)return;
+    if(A.findDupItem(c1,c2,md,it.id))return err('같은 구분에 같은 MODEL이 이미 있습니다.');
+    A.updateItem(id,{cat1:c1,cat2:c2,model:md});A.toast('품목을 수정했습니다. 드라이브 저장 전입니다.');if(opts.onDone)opts.onDone();
+  },'wide');
+  const f=document.querySelector('#modal form.edititem');
+  const fill2=keep=>{const n1=f.c1sel.value===NEWV;f.querySelector('[data-new1]').hidden=!n1;
+    const c2s=n1?[]:[...new Set(A.DB.items.filter(i=>i.cat1===f.c1sel.value).map(i=>i.cat2))];
+    const want=keep&&c2s.includes(it.cat2)?it.cat2:(c2s.includes('')?'':(c2s[0]!=null?c2s[0]:NEWV));
+    f.c2sel.innerHTML=c2s.map(c=>optH(c,c||'(소구분 없음)',c===want)).join('')+(c2s.includes('')?'':optH('','(소구분 없음)',want===''))+optH(NEWV,'+ 새 소구분',want===NEWV);
+    f.querySelector('[data-new2]').hidden=f.c2sel.value!==NEWV};
+  f.c1sel.addEventListener('change',()=>fill2(false));f.c2sel.addEventListener('change',()=>{f.querySelector('[data-new2]').hidden=f.c2sel.value!==NEWV});fill2(true);
+  f.querySelector('[data-del]').addEventListener('click',ev=>armBtn(ev.currentTarget,'한 번 더 누르면 삭제',()=>{A.removeItem(id);A.closeModal();A.toast(A.itemName(it)+' 품목을 삭제했습니다. 관리 화면에서 복원할 수 있습니다.');if(opts.onDelete)opts.onDelete()}));
+  f.model.focus();
+};
+A.editColDialog=function(key){
+  const c=A.COL.get(key);if(!c)return;
+  const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,key,today()))).length;
+  openModal('<form class="editcol" autocomplete="off"><h2>거래처 수정</h2>'+
+    '<label class="field"><span>거래처 이름</span><input type="text" name="nm" value="'+esc(c.name)+'" required></label>'+
+    '<label class="field"><span>구분</span><select name="g">'+optH('sell','판매처',c.group!=='buy')+optH('buy','매입처',c.group==='buy')+'</select></label>'+
+    '<div class="section" style="padding:10px"><b>거래처 삭제</b><p class="hint">폐업이나 거래 종료로 없어진 거래처를 단가표, 양식, 마진에서 뺍니다. 지금 단가가 있는 품목 '+n+'개와 과거 기록은 지우지 않고 보관하며, 관리 화면에서 복원할 수 있습니다.</p><div class="row"><button class="btn danger" type="button" data-del>이 거래처 삭제</button></div></div>'+
+    '<p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">저장</button></div></form>',f=>{
+    const nm=norm(f.nm.value);if(!nm){f.querySelector('[data-err]').textContent='이름을 입력하세요.';return false}
+    if(A.DB.columns.some(x=>x.key!==key&&x.name===nm)){f.querySelector('[data-err]').textContent='같은 이름의 거래처가 있습니다.';return false}
+    if(nm===c.name&&f.g.value===c.group)return;
+    A.updateColumn(key,{name:nm,group:f.g.value});A.toast('거래처를 수정했습니다. 드라이브 저장 전입니다.');
+  });
+  const f=document.querySelector('#modal form.editcol');
+  f.querySelector('[data-del]').addEventListener('click',ev=>armBtn(ev.currentTarget,'한 번 더 누르면 삭제',()=>{A.removeColumn(key);A.closeModal();A.toast(c.name+' 거래처를 삭제했습니다. 관리 화면에서 복원할 수 있습니다.')}));
+};
+A.renameCatDialog=function(level,cat1,name){
+  const cnt=A.DB.items.filter(it=>level===1?it.cat1===name:(it.cat1===cat1&&it.cat2===name)).length;
+  openModal('<form class="renamecat" autocomplete="off"><h2>'+(level===1?'대구분':'소구분')+' 이름 변경</h2><p class="hint">'+esc(level===2?cat1+' › ':'')+esc(name||'(소구분 없음)')+' · 품목 '+cnt+'개가 함께 바뀝니다. 이미 있는 이름으로 바꾸면 그 구분으로 합쳐집니다.</p>'+
+    '<label class="field"><span>새 이름</span><input type="text" name="nm" value="'+esc(name)+'"></label><p class="hint up" data-err></p><div class="row-end"><button class="btn" type="button" data-cancel>취소</button><button class="btn primary" type="submit">바꾸기</button></div></form>',f=>{
+    const nm=norm(f.nm.value);if(nm===name)return;
+    try{const n=A.renameCat(level,cat1,name,nm);A.toast((level===1?'대구분':'소구분')+' 이름을 바꿨습니다 (품목 '+n+'개).')}catch(e){f.querySelector('[data-err]').textContent=e.message;return false}
+  });
+};
+/* 관리 화면: 거래처 목록, 구분 이름, 삭제된 항목 복원, 관리 기록 */
+A.mountManage=function(el){
+  function refresh(){
+    const t=today();
+    const cols=A.DB.columns.map(c=>{const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,c.key,t))).length;return '<tr><td>'+esc(c.name)+'</td><td><span class="tag'+(c.group==='buy'?' base':'')+'">'+(c.group==='buy'?'매입':'판매')+'</span></td><td class="r num">'+n+'</td><td class="r"><button class="btn small" type="button" data-mc="'+esc(c.key)+'">수정 · 삭제</button></td></tr>'}).join('');
+    let cats='';
+    for(const c1 of A.cats()){const its=A.DB.items.filter(i=>i.cat1===c1);const c2s=[...new Set(its.map(i=>i.cat2))];
+      cats+='<tr><td><b>'+esc(c1)+'</b></td><td class="r num">'+its.length+'</td><td class="r"><button class="btn small" type="button" data-mk="1" data-c1="'+esc(c1)+'">이름 변경</button></td></tr>';
+      for(const c2 of c2s){if(!c2&&c2s.length===1)continue;cats+='<tr><td style="padding-left:22px">› '+esc(c2||'(소구분 없음)')+'</td><td class="r num">'+its.filter(i=>i.cat2===c2).length+'</td><td class="r">'+(c2?'<button class="btn small" type="button" data-mk="2" data-c1="'+esc(c1)+'" data-c2="'+esc(c2)+'">이름 변경</button>':'')+'</td></tr>'}}
+    const ri=A.DB.removedItems,rc=A.DB.removedColumns;
+    const rem=rc.map(c=>'<tr><td><span class="tag">거래처</span> '+esc(c.name)+'</td><td class="hint num">'+esc(shortDT(c.upd?localDT(c.upd):''))+'</td><td class="r"><button class="btn small" type="button" data-rc="'+esc(c.key)+'">복원</button></td></tr>').join('')+
+      ri.map(it=>'<tr><td><span class="tag">품목</span> '+esc(itemPath(it))+'</td><td class="hint num">'+esc(it.upd?localDT(it.upd):'')+'</td><td class="r"><button class="btn small" type="button" data-ri="'+esc(it.id)+'">복원</button></td></tr>').join('');
+    const log=A.DB.log.slice().sort((a,b)=>a.at<b.at?1:-1).slice(0,40);
+    el.innerHTML='<div class="section"><div class="row" style="justify-content:space-between"><h2>거래처</h2><button class="btn small" type="button" data-addcol>거래처 추가</button></div><p class="hint">숫자는 오늘 단가가 있는 품목 수입니다. 이름 변경, 매입·판매 구분 변경, 삭제를 할 수 있습니다.</p><div class="tbl-wrap"><table class="list"><thead><tr><th>이름</th><th>구분</th><th class="r">품목</th><th></th></tr></thead><tbody>'+cols+'</tbody></table></div></div>'+
+      '<div class="section"><h2>대구분 · 소구분</h2><p class="hint">이름을 바꾸면 그 구분의 품목이 모두 함께 바뀝니다. 품목 하나만 옮기려면 품목 수정에서 바꾸세요.</p><div class="tbl-wrap"><table class="list"><thead><tr><th>구분</th><th class="r">품목</th><th></th></tr></thead><tbody>'+(cats||'<tr><td colspan="3" class="hint">품목이 없습니다.</td></tr>')+'</tbody></table></div></div>'+
+      '<div class="section"><h2>삭제된 거래처 · 품목</h2>'+(rem?'<p class="hint">복원하면 단가표에 다시 나오고, 보관된 단가와 이력도 그대로 돌아옵니다.</p><div class="tbl-wrap"><table class="list"><tbody>'+rem+'</tbody></table></div>':'<p class="hint">삭제된 항목이 없습니다.</p>')+'</div>'+
+      '<div class="section"><h2>관리 기록</h2>'+(log.length?'<div class="tbl-wrap"><table class="list"><tbody>'+log.map(l=>'<tr><td class="num hint" style="white-space:nowrap">'+esc(shortDT(l.at))+'</td><td>'+esc(l.text)+'</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">품목·거래처의 이름 변경, 삭제, 복원이 여기에 남습니다.</p>')+'</div>';
+  }
+  el.addEventListener('click',ev=>{
+    const b=ev.target.closest('button');if(!b)return;
+    try{
+      if(b.dataset.mc)A.editColDialog(b.dataset.mc);
+      else if(b.dataset.mk)A.renameCatDialog(Number(b.dataset.mk),b.dataset.c1,b.dataset.mk==='2'?b.dataset.c2:b.dataset.c1);
+      else if(b.dataset.rc){A.restoreColumn(b.dataset.rc);A.toast('거래처를 복원했습니다.')}
+      else if(b.dataset.ri){A.restoreItem(b.dataset.ri);A.toast('품목을 복원했습니다.')}
+      else if(b.hasAttribute('data-addcol'))A.addColDialog();
+    }catch(e){A.toast(e.message)}
+  });
+  refresh();return{refresh};
 };
 
 /* service worker for home-screen install & offline viewing */
