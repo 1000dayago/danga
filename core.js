@@ -229,8 +229,9 @@ A.mergeDb=function(local,remote){
   };
   const remoteOrder=(remote.itemsUpd||'')>(local.itemsUpd||'');
   const I=remoteOrder?mergeSet(remote.items,remote.removedItems,local.items,local.removedItems,'id',insertInGroup):mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
-  const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{itemsUpd:(local.itemsUpd||'')>(remote.itemsUpd||'')?local.itemsUpd:remote.itemsUpd,columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
+  const remoteCols=(remote.colsUpd||'')>(local.colsUpd||'');
+  const C=remoteCols?mergeSet(remote.columns,remote.removedColumns,local.columns,local.removedColumns,'key',(a,c)=>a.push(c)):mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
+  return{itemsUpd:(local.itemsUpd||'')>(remote.itemsUpd||'')?local.itemsUpd:remote.itemsUpd,colsUpd:remoteCols?remote.colsUpd:local.colsUpd,columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
@@ -278,6 +279,24 @@ A.moveStep=(level,ref,dir)=>{
   arr.splice(i,1);arr.splice(j,0,x);
   applyOrder(t,'순서 변경: '+(level==='item'?A.itemName(x):level==='sub'?ref.c1+' › '+(ref.c2||'(소구분 없음)'):ref.c1));return true;
 };
+
+/* ---------- 업체(열) 위치 이동 · 그룹 단위 이동 ---------- */
+const sideOf=c=>c.group==='buy'?'buy':'sell';
+function colsChanged(label){A.DB.colsUpd=new Date().toISOString();A.DB.columns=sortCols(A.DB.columns);logChange(label);commit()}
+A.moveCol=(key,tkey,pos)=>{const cs=A.DB.columns,x=A.COL.get(key),t=A.COL.get(tkey);if(!x||!t||key===tkey||sideOf(x)!==sideOf(t))return false;
+  cs.splice(cs.indexOf(x),1);let i=cs.indexOf(t);if(pos==='after')i++;cs.splice(i,0,x);colsChanged('업체 위치 이동: '+x.name);return true};
+A.moveColStep=(key,dir)=>{const x=A.COL.get(key);if(!x)return false;const side=A.DB.columns.filter(c=>sideOf(c)===sideOf(x));const i=side.indexOf(x),j=dir==='left'||dir==='up'?i-1:dir==='first'?0:dir==='last'?side.length-1:i+1;
+  if(j<0||j>=side.length||j===i)return false;const t=side[j];return A.moveCol(key,t.key,j<i?'before':'after')};
+/* 그룹 소속 업체를 한 덩어리로 옮깁니다. target: 다른 그룹 id 앞/뒤 */
+const gcols=id=>{const ks=new Set(A.groupKeys(id));return A.DB.columns.filter(c=>ks.has(c.key))};
+A.gatherGroup=id=>{const m=gcols(id);if(m.length<2)return false;const cs=A.DB.columns,first=cs.indexOf(m[0]);const rest=cs.filter(c=>!m.includes(c));const before=cs.slice(0,first).filter(c=>!m.includes(c)).length;rest.splice(before,0,...m);A.DB.columns=rest;colsChanged('그룹 모으기: '+A.colLabel('g:'+id));return true};
+A.moveGroupBlock=(id,tid,pos)=>{if(id===tid)return false;const m=gcols(id),tm=gcols(tid).filter(c=>!m.includes(c));if(!m.length||!tm.length)return false;
+  const rest=A.DB.columns.filter(c=>!m.includes(c));const at=pos==='after'?rest.indexOf(tm[tm.length-1])+1:rest.indexOf(tm[0]);rest.splice(at,0,...m);A.DB.columns=rest;colsChanged('그룹 위치 이동: '+A.colLabel('g:'+id));return true};
+A.moveGroupStep=(id,dir)=>{const m=gcols(id);if(!m.length)return false;if(!A.gatherGroup(id)){}
+  const cs=A.DB.columns,m2=gcols(id),i=cs.indexOf(m2[0]),j=cs.indexOf(m2[m2.length-1]);const n=dir==='left'?cs[i-1]:cs[j+1];if(!n||sideOf(n)!==sideOf(m2[0]))return false;
+  const og=A.DB.groups.find(g=>g.id!==id&&A.groupKeys(g.id).includes(n.key)&&A.groupKeys(g.id).every(k=>!A.groupKeys(id).includes(k)));
+  if(og)return A.moveGroupBlock(id,og.id,dir==='left'?'before':'after');
+  return A.moveCol(n.key,m2[dir==='left'?m2.length-1:0].key,dir==='left'?'after':'before')};
 A.hasSort=()=>{const s=A.settings.sort||{};return !!(s.cat1||s.cat2||s.model)};
 A.setSort=(key,dir)=>{const s=Object.assign({},A.settings.sort||{});if(dir)s[key]=dir;else delete s[key];A.settings.sort=s;A.saveSettings();A.emit()};
 A.cycleSort=key=>{const c=(A.settings.sort||{})[key]||'';A.setSort(key,c===''?'asc':c==='asc'?'desc':'')};
@@ -886,7 +905,7 @@ function mountSalesSettings(el){
   return{refresh:fill};
 }
 /* ---------- 앱 버전 (sw.js 의 CACHE 번호와 같이 올립니다) ---------- */
-A.VERSION=17;A.BUILD='2026-11-25';
+A.VERSION=18;A.BUILD='2026-11-25';
 A.verText=()=>'v'+A.VERSION+' · '+A.BUILD;
 A.checkUpdate=async function(){
   try{
@@ -1052,10 +1071,11 @@ A.groupDialog=function(g){
   const buy=g==='buy',label=buy?'매입처':'판매처',t=today();
   const list=()=>A.DB.columns.filter(c=>(c.group==='buy')===buy);
   const body=()=>{const cs=list();return '<form class="grpdlg"><h2>'+label+' 관리</h2><p class="hint">업체 이름을 고치거나 삭제하고, 새 업체를 추가합니다. 삭제해도 과거 단가 기록은 보관되고 관리 화면에서 복원할 수 있습니다.</p><div class="tbl-wrap"><table class="list"><tbody>'+
-    (cs.length?cs.map(c=>{const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,c.key,t))).length;return '<tr><td>'+esc(c.name)+'</td><td class="r num hint">'+n+'품목</td><td class="r"><button class="btn small" type="button" data-e="'+esc(c.key)+'">수정</button> <button class="btn small danger" type="button" data-d="'+esc(c.key)+'">삭제</button></td></tr>'}).join(''):'<tr><td class="hint">'+label+'가 없습니다.</td></tr>')+
+    (cs.length?cs.map(c=>{const n=A.DB.items.filter(it=>A.hasVal(A.entryAt(it.id,c.key,t))).length;return '<tr><td><button class="ibm" type="button" data-up="'+esc(c.key)+'" aria-label="앞으로">'+A.icon('up',14)+'</button><button class="ibm" type="button" data-dn="'+esc(c.key)+'" aria-label="뒤로">'+A.icon('down',14)+'</button> '+esc(c.name)+'</td><td class="r num hint">'+n+'품목</td><td class="r"><button class="btn small" type="button" data-e="'+esc(c.key)+'">수정</button> <button class="btn small danger" type="button" data-d="'+esc(c.key)+'">삭제</button></td></tr>'}).join(''):'<tr><td class="hint">'+label+'가 없습니다.</td></tr>')+
     '</tbody></table></div><div class="row-end"><button class="btn" type="button" data-cancel>닫기</button><button class="btn primary" type="button" data-add>'+label+' 추가</button></div></form>'};
   const show=()=>{openModal(body(),()=>{});const f=document.querySelector('#modal form.grpdlg');
     f.addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b)return;
+      if(b.dataset.up||b.dataset.dn){A.moveColStep(b.dataset.up||b.dataset.dn,b.dataset.up?'left':'right');show();return}
       if(b.hasAttribute('data-add')){A.closeModal();A.addColDialog(g);return}
       if(b.dataset.e){A.closeModal();A.editColDialog(b.dataset.e);return}
       if(b.dataset.d){armBtn(b,'한 번 더 누르면 삭제',()=>{const nm=(A.COL.get(b.dataset.d)||{}).name;A.removeColumn(b.dataset.d);A.toast(nm+' 업체를 삭제했습니다. 관리 화면에서 복원할 수 있습니다.');show()})}})};

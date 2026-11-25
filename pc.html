@@ -72,7 +72,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .ib.add{margin-left:6px;border:1px solid var(--line);width:19px;height:19px}
 .ib.del:hover,.ib.del.arm{background:rgba(220,38,38,.14);color:#dc2626}
 .ib.del.arm{outline:1px solid #dc2626}
-.grid th.hc{position:sticky}.grid th.hc .ia{display:inline-flex;gap:0;margin-left:2px;opacity:0;transition:opacity .12s}
+.grid th.hc{position:sticky;cursor:grab}.grid thead th.drop-before{box-shadow:inset 3px 0 0 var(--accent)}.grid thead th.drop-after{box-shadow:inset -3px 0 0 var(--accent)}.grid th.hc .ia{display:inline-flex;gap:0;margin-left:2px;opacity:0;transition:opacity .12s}
 .grid th.hc:hover .ia,.grid th.hc:focus-within .ia,.ib.arm{opacity:1}
 .grid th.hc .ia:has(.arm){opacity:1}
 @media (hover:none){.grid th.hc .ia{opacity:.7}}
@@ -192,7 +192,7 @@ function gridHtml(rows,cols,cellFn,opt){
   const gm=g=>(!opt.manage||A.readOnly)?'':' <button type="button" class="ib add" data-gadd="'+g+'" title="'+(g==='buy'?'매입처':'판매처')+' 추가" aria-label="추가">'+A.icon('plus',13)+'</button>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입처')+(opt.buyLabel?'':gm('buy'))+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+(opt.sellLabel?'':gm('sell'))+'</th>';
-  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly&&opt.manage;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' hc':'')+'"><span class="cn">'+esc(c.name)+'</span>'+(real?'<span class="ia"><button type="button" class="ib" data-edit-col="'+esc(c.key)+'" title="이름·구분 수정" aria-label="수정">'+A.icon('pencil',12)+'</button><button type="button" class="ib del" data-del-col="'+esc(c.key)+'" title="삭제 (한 번 더 누르면 실행)" aria-label="삭제">'+A.icon('trash',12)+'</button></span>':'')+'</th>'}).join('')+'</tr></thead><tbody>';
+  h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly&&opt.manage;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' hc':'')+'"'+(real?' data-ck="'+esc(c.key)+'" data-side="'+(c.group==='buy'?'buy':'sell')+'" draggable="true" title="끌어서 위치 이동"':'')+'><span class="cn">'+esc(c.name)+'</span>'+(real?'<span class="ia"><button type="button" class="ib" data-colmv="left" data-ck2="'+esc(c.key)+'" title="왼쪽으로" aria-label="왼쪽">'+A.icon('left',12)+'</button><button type="button" class="ib" data-colmv="right" data-ck2="'+esc(c.key)+'" title="오른쪽으로" aria-label="오른쪽">'+A.icon('right',12)+'</button><button type="button" class="ib" data-edit-col="'+esc(c.key)+'" title="이름·구분 수정" aria-label="수정">'+A.icon('pencil',12)+'</button><button type="button" class="ib del" data-del-col="'+esc(c.key)+'" title="삭제 (한 번 더 누르면 실행)" aria-label="삭제">'+A.icon('trash',12)+'</button></span>':'')+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
   const mvb=(lv,attrs)=>'<span class="mvg"><button type="button" class="mvb" data-mv="'+lv+'" data-dir="up" '+attrs+' title="위로">▲</button><button type="button" class="mvb" data-mv="'+lv+'" data-dir="down" '+attrs+' title="아래로">▼</button></span>';
   for(let r=0;r<rows.length;r++){const it=rows[r];
@@ -276,6 +276,7 @@ document.addEventListener('click',ev=>{
   const ms=ev.target.closest('[data-mvsub]');if(ms){A.moveSubDialog(ms.dataset.c1,ms.dataset.c2);return}
   const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
+  const cmv=ev.target.closest('[data-colmv]');if(cmv){A.moveColStep(cmv.dataset.ck2,cmv.dataset.colmv);return}
   const gad=ev.target.closest('[data-gadd]');if(gad){A.addColDialog(gad.dataset.gadd);return}
   const dc=ev.target.closest('[data-del-col]');if(dc){const k=dc.dataset.delCol;if(!dc.classList.contains('arm')){document.querySelectorAll('.ib.arm').forEach(x=>x.classList.remove('arm'));dc.classList.add('arm');dc.title='한 번 더 누르면 삭제';setTimeout(()=>dc.classList.remove('arm'),4000);return}const nm=(A.COL.get(k)||{}).name;A.removeColumn(k);A.toast(nm+' 업체를 삭제했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}});return}
   const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}
@@ -323,16 +324,17 @@ const grid=$('#tGrid'),clearInd=()=>grid.querySelectorAll('.drop-before,.drop-af
 function dropTarget(ev){
   const pos=el=>{const r=el.getBoundingClientRect();return ev.clientY<r.top+r.height/2?'before':'after'};
   if(!drag)return null;
+  if(drag.kind==='col'){const th=ev.target.closest('th[data-ck]');if(!th||th.dataset.ck===drag.key||th.dataset.side!==drag.side)return null;const r=th.getBoundingClientRect();return{el:th,pos:ev.clientX<r.left+r.width/2?'before':'after',ck:th.dataset.ck}}
   if(drag.kind==='item'){const tr=ev.target.closest('tr[data-iid]');if(!tr||tr.dataset.c1!==drag.c1||tr.dataset.c2!==drag.c2||tr.dataset.iid===drag.id)return null;return{el:tr,pos:pos(tr),id:tr.dataset.iid}}
   if(drag.kind==='sub'){const td=ev.target.closest('td.c2[data-sub]');
     if(td){if(td.dataset.c1===drag.c1){if(td.dataset.sub===drag.c2)return null;return{el:td,pos:pos(td),c2:td.dataset.sub}}return{el:td,pos:pos(td),c2:td.dataset.sub,nc1:td.dataset.c1}}
     const t1=ev.target.closest('td.c1[data-cat]');if(t1&&t1.dataset.cat!==drag.c1)return{el:t1,pos:'after',nc1:t1.dataset.cat};return null}
   const td=ev.target.closest('td.c1[data-cat]');if(!td||td.dataset.cat===drag.c1)return null;return{el:td,pos:pos(td),c1:td.dataset.cat};
 }
-grid.addEventListener('dragstart',ev=>{const h=ev.target.closest('[data-dk]');if(!h)return;drag={kind:h.dataset.dk,id:h.dataset.id,c1:h.dataset.c1,c2:h.dataset.c2};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',drag.kind);const tr=h.closest('tr');if(tr&&drag.kind==='item')tr.classList.add('dragging')});
+grid.addEventListener('dragstart',ev=>{const ch=ev.target.closest&&ev.target.closest('th[data-ck]');if(ch&&!ev.target.closest('[data-dk]')){drag={kind:'col',key:ch.dataset.ck,side:ch.dataset.side};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain','col');return}const h=ev.target.closest('[data-dk]');if(!h)return;drag={kind:h.dataset.dk,id:h.dataset.id,c1:h.dataset.c1,c2:h.dataset.c2};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',drag.kind);const tr=h.closest('tr');if(tr&&drag.kind==='item')tr.classList.add('dragging')});
 grid.addEventListener('dragover',ev=>{if(!drag)return;const t=dropTarget(ev);grid.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));if(!t)return;ev.preventDefault();t.el.classList.add(t.pos==='before'?'drop-before':'drop-after')});
 grid.addEventListener('drop',ev=>{if(!drag)return;ev.preventDefault();const t=dropTarget(ev),d=drag;clearInd();drag=null;if(!t)return;
-  if(d.kind==='item')A.moveItem(d.id,t.id,t.pos);else if(d.kind==='sub'){if(t.nc1){try{A.moveSubTo(d.c1,d.c2,t.nc1,t.c2,t.pos);A.toast('소구분을 '+t.nc1+'(으)로 옮겼습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}catch(e){A.toast(e.message)}}else A.moveSub(d.c1,d.c2,t.c2,t.pos)}else A.moveCat(d.c1,t.c1,t.pos)});
+  if(d.kind==='col')A.moveCol(d.key,t.ck,t.pos);else if(d.kind==='item')A.moveItem(d.id,t.id,t.pos);else if(d.kind==='sub'){if(t.nc1){try{A.moveSubTo(d.c1,d.c2,t.nc1,t.c2,t.pos);A.toast('소구분을 '+t.nc1+'(으)로 옮겼습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})}catch(e){A.toast(e.message)}}else A.moveSub(d.c1,d.c2,t.c2,t.pos)}else A.moveCat(d.c1,t.c1,t.pos)});
 grid.addEventListener('dragend',()=>{clearInd();drag=null});
 $('#btnSave').addEventListener('click',()=>A.save());
 $('#btnPull').addEventListener('click',()=>A.pull(true).then(ch=>{if(ch)A.toast('최신본을 불러왔습니다.')}));
