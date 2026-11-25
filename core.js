@@ -707,8 +707,10 @@ function stepChart(es){
   const area=p+'V'+(H-B)+'H'+X(Date.parse(es[0].from)).toFixed(1)+'Z';const last=es[es.length-1];
   const tx=(x,y,s,anchor)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+(anchor||'start')+'" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono,monospace">'+esc(s)+'</text>';
   let g='';[lo+pd,hi-pd].forEach(v=>{const y=Y(v);g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)" stroke-dasharray="3 3"/>'+tx(L-6,y+4,fmtN(Math.round(v*100)/100),'end')});
-  const dots=es.map(e=>'<circle cx="'+X(Date.parse(e.from)).toFixed(1)+'" cy="'+Y(e.v).toFixed(1)+'" r="'+(e===last?4:2.5)+'" fill="var(--accent)"/>').join('');
-  return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="단가 추이"><path d="'+area+'" fill="var(--accent-weak)" opacity=".7"/>'+g+'<path d="'+p+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots+tx(L,H-6,es[0].from)+tx(W-R,H-6,t,'end')+'</svg>';
+  const dots=es.map(e=>{const fut=e.from>t;return '<circle cx="'+X(Date.parse(e.from)).toFixed(1)+'" cy="'+Y(e.v).toFixed(1)+'" r="'+(e===last?4:2.5)+'" fill="'+(fut?'var(--surface,#fff)':'var(--accent)')+'" stroke="var(--accent)" stroke-width="'+(fut?2:0)+'"/>'}).join('');
+  const hasFut=es.some(e=>e.from>t),endLbl=hasFut?last.from:t;
+  const todayLine=hasFut&&Date.parse(t)>x0?'<line x1="'+X(Date.parse(t)).toFixed(1)+'" x2="'+X(Date.parse(t)).toFixed(1)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="var(--muted)" stroke-dasharray="2 3"/>'+tx(X(Date.parse(t)).toFixed(1),T+8,'오늘','middle'):'';
+  return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="단가 추이"><path d="'+area+'" fill="var(--accent-weak)" opacity=".7"/>'+g+'<path d="'+p+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+todayLine+dots+tx(L,H-6,es[0].from)+tx(W-R,H-6,endLbl+(hasFut?' (적용 예정)':''),'end')+'</svg>';
 }
 
 /* cell history + change form; opts.date = date currently viewed */
@@ -928,7 +930,7 @@ function mountSalesSettings(el){
   return{refresh:fill};
 }
 /* ---------- 앱 버전 (sw.js 의 CACHE 번호와 같이 올립니다) ---------- */
-A.VERSION=20;A.BUILD='2026-11-25';
+A.VERSION=21;A.BUILD='2026-11-25';
 A.verText=()=>'v'+A.VERSION+' · '+A.BUILD;
 A.checkUpdate=async function(){
   try{
