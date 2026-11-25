@@ -112,7 +112,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
       <section class="view" id="v-home" hidden><div id="homeBox"></div></section>
 
       <section class="view" id="v-table" hidden>
-        <div class="toolbar">
+        <div class="toolbar" id="tFilters">
           <label class="field"><span>기준일</span><input type="date" id="tDate"></label>
           <label class="field grow"><span>모델 · 구분 검색</span><input type="search" id="tSearch" placeholder="예: 102 S 0580, AF, 소결"></label>
           <label class="field"><span>대구분</span><select id="tCat"></select></label>
@@ -120,12 +120,14 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
           <label class="field"><span>변경 표시</span><select id="tHi"><option value="30">최근 30일 변경</option><option value="7">최근 7일 변경</option><option value="90">최근 90일 변경</option><option value="all">기준 단가 이후 전체</option><option value="off">표시 안 함</option></select></label>
           <div class="field"><span>외화 단가 표시</span><div class="seg mini" id="krwSeg"><button type="button" data-k="0">원래 통화</button><button type="button" data-k="1">원화 환산</button></div></div>
           <label class="check"><input type="checkbox" id="tHideEmpty"> 빈 거래처 열 숨기기</label>
+          <label class="check"><input type="checkbox" id="chkPinned"> 고정한 것만 보기</label>
         </div>
         <div class="toolbar">
           <div class="legend"><span><i class="sw buy"></i>매입가</span><span><i class="sw chg"></i>기간 내 변경</span><span><i class="sw fut"></i>적용 예정 있음</span><span>외화는 통화 표시(예: <span class="cur">EUR</span>), 원화 환산 값은 점선 밑줄</span></div>
-          <div class="row" style="margin-left:auto"><button class="btn small rw" type="button" id="btnAddItem">+ 품목 추가</button><button class="btn small rw" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small rw" type="button" id="btnPct">비율 인상 · 인하</button><button class="btn small" type="button" id="btnExport">내보내기</button></div>
+          <div class="row" style="margin-left:auto"><button class="btn small rw" type="button" id="btnOrder">순서 바꾸기</button><button class="btn small rw" type="button" id="btnSortSave" hidden>정렬을 순서로 저장</button><button class="btn small" type="button" id="btnSortClear" hidden>정렬 해제</button><button class="btn small rw" type="button" id="btnAddItem">+ 품목 추가</button><button class="btn small rw" type="button" id="btnBulk">엑셀 일괄 변경</button><button class="btn small rw" type="button" id="btnPct">비율 인상 · 인하</button><button class="btn small" type="button" id="btnExport">내보내기</button></div>
         </div>
         <p class="hint" id="tHint" style="margin:-6px 0 0">칸을 누르면 이력과 단가 변경, MODEL이나 거래처 이름을 누르면 수정 · 삭제할 수 있습니다.</p>
+        <div class="status-line" id="orderBanner" hidden>순서 바꾸는 중: 왼쪽의 <b>⠿</b>를 끌어서 놓거나 ▲▼ 버튼으로 옮기세요. 품목은 같은 소구분 안에서, 소구분은 같은 대구분 안에서, 대구분은 전체에서 옮깁니다. (검색·정렬·고정 보기는 잠시 꺼집니다)</div>
         <div id="tEmpty" hidden></div>
         <div class="scroller" id="tScroll"><table class="grid" id="tGrid"></table></div>
       </section>
@@ -165,32 +167,45 @@ const VIEWS_ALL=[
 const VIEWS=A.readOnly?VIEWS_ALL.filter(v=>['table','history','tools','setup'].includes(v.id)):VIEWS_ALL;
 if(A.readOnly){document.body.classList.add('ro');const g=id=>VIEWS_ALL.find(v=>v.id===id);g('setup').title='영업용 설정';g('setup').desc='영업용 폴더 연결과 최신본 불러오기';g('table').desc='판매 단가를 확인합니다 (읽기 전용)';g('tools').desc='거래처별 단가표와 내보내기'}
 $('#nav').innerHTML=VIEWS.map((v,i)=>(v.id==='table'||v.id==='tools'?'<div class="sep"></div>':'')+'<a href="#'+v.id+'" data-view="'+v.id+'">'+A.icon(v.icon,18)+'<span>'+esc(v.label)+'</span></a>').join('');
-let selCell=null,hist,anaHub,marHub,toolsHub,homeHub,manage,setup;
+let selCell=null,hist,anaHub,marHub,toolsHub,homeHub,manage,setup,editOrder=false;
 if(A.readOnly){$('#brand').setAttribute('href','#table');$('#tHint').textContent='칸을 누르면 변경 이력을 볼 수 있습니다. (읽기 전용)'}
 
 /* ---------- price table ---------- */
 function gridHtml(rows,cols,cellFn,opt){
   opt=opt||{};const buy=cols.filter(c=>c.group==='buy'),sell=cols.filter(c=>c.group!=='buy');
-  let h='<thead><tr class="g"><th class="c1" rowspan="2">대구분</th><th class="c2" rowspan="2">소구분</th><th class="md" rowspan="2">MODEL</th>';
+  const sh=(k,l)=>{const d=(A.settings.sort||{})[k];return l+(d==='asc'?' ▲':d==='desc'?' ▼':'')};
+  const so=(k,l)=>opt.edit?l:'<span data-sort="'+k+'" title="눌러서 정렬 (▲ → ▼ → 해제)" class="sortable">'+sh(k,l)+'</span>';
+  let h='<thead><tr class="g"><th class="c1" rowspan="2">'+so('cat1','대구분')+'</th><th class="c2" rowspan="2">'+so('cat2','소구분')+'</th><th class="md" rowspan="2">'+so('model','MODEL')+'</th>';
   if(buy.length)h+='<th class="buy" colspan="'+buy.length+'">'+esc(opt.buyLabel||'매입가')+'</th>';
   if(sell.length)h+='<th colspan="'+sell.length+'">'+esc(opt.sellLabel||'판매처')+'</th>';
   h+='</tr><tr class="h">'+cols.map(c=>{const real=!c.key.startsWith('__')&&!A.readOnly;return '<th class="'+(c.group==='buy'?'buy':'')+(real?' editable':'')+'"'+(real?' data-edit-col="'+esc(c.key)+'" title="눌러서 거래처 수정 · 삭제"':'')+'>'+esc(c.name)+'</th>'}).join('')+'</tr></thead><tbody>';
   if(!rows.length)h+='<tr><td colspan="'+(cols.length+3)+'" class="na" style="padding:24px">조건에 맞는 품목이 없습니다.</td></tr>';
-  for(let r=0;r<rows.length;r++){const it=rows[r];h+='<tr>';
-    if(r===0||rows[r-1].cat1!==it.cat1){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1)n++;h+='<td class="c1" rowspan="'+n+'">'+esc(it.cat1)+'</td>'}
-    if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;h+='<td class="c2" rowspan="'+n+'">'+esc(it.cat2)+'</td>'}
-    h+='<td class="md'+(A.readOnly?'':' editable')+'"'+(A.readOnly?'':' data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제"')+'>'+esc(it.model)+'</td>';for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
+  const mvb=(lv,attrs)=>'<span class="mvg"><button type="button" class="mvb" data-mv="'+lv+'" data-dir="up" '+attrs+' title="위로">▲</button><button type="button" class="mvb" data-mv="'+lv+'" data-dir="down" '+attrs+' title="아래로">▼</button></span>';
+  for(let r=0;r<rows.length;r++){const it=rows[r];
+    h+='<tr'+(opt.edit?' data-iid="'+esc(it.id)+'" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'"':'')+'>';
+    if(r===0||rows[r-1].cat1!==it.cat1){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1)n++;
+      h+='<td class="c1'+(!it._pin&&A.isPinCat(it.cat1)?' pinned':'')+'" rowspan="'+n+'"'+(opt.edit?' data-cat="'+esc(it.cat1)+'"':'')+'>'+
+        (opt.edit?'<div class="oh" draggable="true" data-dk="cat" data-c1="'+esc(it.cat1)+'" title="끌어서 대구분 순서 바꾸기">⠿</div>'+mvb('cat','data-c1="'+esc(it.cat1)+'"')+' ':'')+
+        (it._pin?'<span class="pinlbl">'+A.icon('pin',13)+' 고정</span>':esc(it.cat1)+(opt.edit?'':'<button type="button" class="pinb'+(A.isPinCat(it.cat1)?' on':'')+'" data-pincat="'+esc(it.cat1)+'" title="대구분 맨 위에 고정">'+A.icon('pin',13)+'</button>'))+'</td>'}
+    if(r===0||rows[r-1].cat1!==it.cat1||rows[r-1].cat2!==it.cat2){let n=1;while(r+n<rows.length&&rows[r+n].cat1===it.cat1&&rows[r+n].cat2===it.cat2)n++;
+      h+='<td class="c2" rowspan="'+n+'"'+(opt.edit?' data-sub="'+esc(it.cat2)+'" data-c1="'+esc(it.cat1)+'"':'')+'>'+(opt.edit?'<div class="oh" draggable="true" data-dk="sub" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 소구분 순서 바꾸기">⠿</div>'+mvb('sub','data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'"')+' ':'')+esc(it.cat2)+'</td>'}
+    const ed=A.readOnly||opt.edit;
+    h+='<td class="md'+(ed?'':' editable')+'"'+(ed?'':' data-edit-item="'+esc(it.id)+'" title="눌러서 품목 수정 · 삭제"')+'>'+
+      (opt.edit?'<span class="oh" draggable="true" data-dk="item" data-id="'+esc(it.id)+'" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'" title="끌어서 품목 순서 바꾸기">⠿</span>'+mvb('item','data-id="'+esc(it.id)+'"')+' ':'')+esc(it.model)+
+      (opt.edit?'':'<button type="button" class="pinb'+(A.isFav(it.id)?' on':'')+'" data-pinitem="'+esc(it.id)+'" title="품목 맨 위에 고정">'+A.icon('pin',13)+'</button>')+'</td>';
+    for(const c of cols)h+=cellFn(it,c);h+='</tr>'}
   return h+'</tbody>';
 }
 function renderTable(){
   const sel=$('#tCat'),cv=sel.value;sel.innerHTML='<option value="">전체</option>'+A.cats().map(c=>'<option>'+esc(c)+'</option>').join('');sel.value=cv;
   document.querySelectorAll('#krwSeg button').forEach(b=>b.setAttribute('aria-selected',String((b.dataset.k==='1')===A.view.krw)));
   const gsel=$('#tGroup'),gv=gsel.value;gsel.innerHTML='<option value="">전체 거래처</option>'+A.DB.groups.filter(g=>A.groupKeys(g.id).length).map(g=>'<option value="g:'+esc(g.id)+'">'+esc(g.name)+'</option>').join('');gsel.value=gv;
+  syncOrderUi();
   const empty=A.isEmpty();$('#tEmpty').hidden=!empty;$('#tScroll').hidden=empty;
   if(empty){$('#tEmpty').innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>'+(A.readOnly?'설정에서 영업용 폴더를 연결하고 최신본을 불러오세요.':'처음이면 원본 단가.xlsx를 가져오고, 다른 기기에서 저장한 적이 있으면 드라이브에서 불러오세요.')+'</span><a class="btn primary" href="#setup">저장 · 설정으로 가기</a></div>';return}
   const d=$('#tDate').value||today(),q=$('#tSearch').value.trim(),cat=sel.value,hi=$('#tHi').value;
   const since=hi==='off'?null:hi==='all'?'0000':addDays(d,-Number(hi));
-  const rows=A.DB.items.filter(it=>A.matchItem(it,q,cat));
+  const rows=A.orderedRows({edit:editOrder,filter:it=>A.matchItem(it,q,cat)&&(!$('#chkPinned').checked||A.isFav(it.id)||A.isPinCat(it.cat1))});
   let cols=A.DB.columns.filter(c=>c.group==='buy'||A.colMatch($('#tGroup').value,c.key));if($('#tHideEmpty').checked)cols=cols.filter(c=>rows.some(it=>A.hasVal(A.entryAt(it.id,c.key,d))));
   $('#tGrid').innerHTML=gridHtml(rows,cols,(it,c)=>{
     const e=A.entryAt(it.id,c.key,d);let cls='v'+(c.group==='buy'?' buy':'');
@@ -199,9 +214,10 @@ function renderTable(){
     let title=c.name+' · '+A.itemName(it);if(e&&!e.base){title+='\n'+e.from+' 변경: '+A.eText(A.prevOf(e))+' → '+A.eText(e)+(e.reason?'\n사유: '+e.reason:'')}else if(e&&e.t)title+='\n'+e.t;
     const kn=A.krwNote(e,d);if(kn)title+='\n'+kn;
     return '<td class="'+cls+'" data-i="'+esc(it.id)+'" data-c="'+esc(c.key)+'" title="'+esc(title)+'">'+A.eHtml(e,d)+'</td>';
-  });
+  },{edit:editOrder});
   $('#brandSub').textContent=d+' 기준';
 }
+function syncOrderUi(){const hs=A.hasSort();$('#btnOrder').textContent=editOrder?'순서 바꾸기 끝내기':'순서 바꾸기';$('#btnOrder').classList.toggle('primary',editOrder);$('#orderBanner').hidden=!editOrder;$('#tFilters').classList.toggle('dim',editOrder);$('#btnSortSave').hidden=!hs||editOrder;$('#btnSortClear').hidden=!hs||editOrder}
 
 /* ---------- margin table (inside the 마진 · 환율 tabs) ---------- */
 function mountMarginTable(el){
@@ -218,7 +234,7 @@ function renderMargin(){
   if(A.isEmpty()){g.innerHTML='';return}
   $('#lowLegend').textContent='주황: 마진율 '+A.lowMargin()+'% 미만';
   const d=$('#mDate').value||today(),basis=$('#mBasis').value,mode=$('#mMode').value,q=$('#mSearch').value.trim(),lm=A.lowMargin();
-  const rows=A.DB.items.filter(it=>A.matchItem(it,q,''));
+  const rows=A.orderedRows({filter:it=>A.matchItem(it,q,'')});
   const cols=[{key:'__cost',name:'원가 (원)',group:'buy'}].concat(A.DB.columns.filter(c=>c.group!=='buy'));
   g.innerHTML=gridHtml(rows,cols,(it,c)=>{
     if(c.key==='__cost'){const cost=A.costAt(it,d,basis);if(!cost)return '<td class="v buy na">-</td>';if(cost.needFx)return '<td class="v buy na">'+esc(cost.e.cur)+' 환율 필요</td>';return '<td class="v buy" title="'+esc(A.eText(cost.e))+'">'+esc(A.fmtN(Math.round(cost.krw*100)/100))+'</td>'}
@@ -240,6 +256,10 @@ $('#dClose').addEventListener('click',closeDrawer);$('#scrim').addEventListener(
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('#modal')&&!$('#modal').hidden)A.closeModal();else if(!$('#drawer').hidden)closeDrawer()}});
 document.addEventListener('danga:undo',()=>{if(selCell&&!$('#drawer').hidden)A.renderCell($('#dBody'),selCell.i,selCell.c,{date:$('#tDate').value,readonly:A.readOnly})});
 document.addEventListener('click',ev=>{
+  const so=ev.target.closest('[data-sort]');if(so){A.cycleSort(so.dataset.sort);return}
+  const pi=ev.target.closest('[data-pinitem]');if(pi){A.toggleFav(pi.dataset.pinitem);return}
+  const pc=ev.target.closest('[data-pincat]');if(pc){A.togglePinCat(pc.dataset.pincat);return}
+  const mv=ev.target.closest('[data-mv]');if(mv){const lv=mv.dataset.mv;A.moveStep(lv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
   const ei=ev.target.closest('[data-edit-item]');if(ei){A.editItemDialog(ei.dataset.editItem);return}
   const ec=ev.target.closest('[data-edit-col]');if(ec){A.editColDialog(ec.dataset.editCol);return}
   const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#drawer')&&!ev.target.closest('#modal'))openCell(t.dataset.i,t.dataset.c);
@@ -264,6 +284,7 @@ function render(){
   else if(v==='setup')setup.refresh();
 }
 function route(){
+  editOrder=false;
   const v=cur(),def=VIEWS.find(x=>x.id===v);
   VIEWS.forEach(x=>$('#v-'+x.id).hidden=x.id!==v);
   document.querySelectorAll('#nav a').forEach(a=>{if(a.dataset.view===v)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
@@ -276,6 +297,24 @@ window.addEventListener('hashchange',route);
 /* ---------- wiring ---------- */
 ['tDate','tSearch','tCat','tGroup','tHi','tHideEmpty'].forEach(id=>$('#'+id).addEventListener('input',()=>{renderTable();A.LS.set('danga.pc',{hi:$('#tHi').value,hide:$('#tHideEmpty').checked})}));
 $('#krwSeg').addEventListener('click',ev=>{const b=ev.target.closest('button[data-k]');if(b)A.setKrw(b.dataset.k==='1')});
+$('#btnOrder').addEventListener('click',()=>{editOrder=!editOrder;renderTable()});
+$('#btnSortClear').addEventListener('click',()=>A.clearSort());
+$('#btnSortSave').addEventListener('click',ev=>{const b=ev.currentTarget;if(!b.dataset.armed){b.dataset.armed='1';b.textContent='한 번 더 누르면 저장';setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='정렬을 순서로 저장'}},4000);return}delete b.dataset.armed;b.textContent='정렬을 순서로 저장';if(A.saveViewOrder())A.toast('지금 정렬을 실제 순서로 저장했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}})});
+$('#chkPinned').addEventListener('input',renderTable);
+let drag=null;
+const grid=$('#tGrid'),clearInd=()=>grid.querySelectorAll('.drop-before,.drop-after,.dragging').forEach(x=>x.classList.remove('drop-before','drop-after','dragging'));
+function dropTarget(ev){
+  const pos=el=>{const r=el.getBoundingClientRect();return ev.clientY<r.top+r.height/2?'before':'after'};
+  if(!drag)return null;
+  if(drag.kind==='item'){const tr=ev.target.closest('tr[data-iid]');if(!tr||tr.dataset.c1!==drag.c1||tr.dataset.c2!==drag.c2||tr.dataset.iid===drag.id)return null;return{el:tr,pos:pos(tr),id:tr.dataset.iid}}
+  if(drag.kind==='sub'){const td=ev.target.closest('td.c2[data-sub]');if(!td||td.dataset.c1!==drag.c1||td.dataset.sub===drag.c2)return null;return{el:td,pos:pos(td),c2:td.dataset.sub}}
+  const td=ev.target.closest('td.c1[data-cat]');if(!td||td.dataset.cat===drag.c1)return null;return{el:td,pos:pos(td),c1:td.dataset.cat};
+}
+grid.addEventListener('dragstart',ev=>{const h=ev.target.closest('[data-dk]');if(!h)return;drag={kind:h.dataset.dk,id:h.dataset.id,c1:h.dataset.c1,c2:h.dataset.c2};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',drag.kind);const tr=h.closest('tr');if(tr&&drag.kind==='item')tr.classList.add('dragging')});
+grid.addEventListener('dragover',ev=>{if(!drag)return;const t=dropTarget(ev);grid.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));if(!t)return;ev.preventDefault();t.el.classList.add(t.pos==='before'?'drop-before':'drop-after')});
+grid.addEventListener('drop',ev=>{if(!drag)return;ev.preventDefault();const t=dropTarget(ev),d=drag;clearInd();drag=null;if(!t)return;
+  if(d.kind==='item')A.moveItem(d.id,t.id,t.pos);else if(d.kind==='sub')A.moveSub(d.c1,d.c2,t.c2,t.pos);else A.moveCat(d.c1,t.c1,t.pos)});
+grid.addEventListener('dragend',()=>{clearInd();drag=null});
 $('#btnSave').addEventListener('click',()=>A.save());
 $('#btnPull').addEventListener('click',()=>A.pull(true).then(ch=>{if(ch)A.toast('최신본을 불러왔습니다.')}));
 $('#btnAddItem').addEventListener('click',()=>A.runTool('add',ctx));

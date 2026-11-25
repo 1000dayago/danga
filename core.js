@@ -37,7 +37,7 @@ A.toast=function(msg,opt){let t=$('#toast');if(!t){t=document.createElement('div
 const emptyDb=()=>({columns:[],items:[],entries:[],fx:[],deleted:[],removedItems:[],removedColumns:[],log:[],fxCurs:[],groups:[],sheetLog:[]});
 const validDb=d=>d&&Array.isArray(d.columns)&&Array.isArray(d.items)&&Array.isArray(d.entries);
 const normDb=d=>{for(const k of ['fx','deleted','removedItems','removedColumns','log','fxCurs','groups','sheetLog'])if(!Array.isArray(d[k]))d[k]=[];return d};
-A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null,userName:'',company:'',sheetNote:'',warnPct:30,lowMargin:10,basis:'hana',viewKrw:false,favs:[],salesMode:false,sharePath:'회사 폴더/단가관리/영업용',autoShare:false,shareFolderId:null,shareFolderFor:null,lastShare:null},LS.get('danga.settings')||{});
+A.settings=Object.assign({clientId:'',path:'회사 폴더/단가관리',prefix:'단가DB',autoSync:true,folderId:null,folderFor:null,connected:false,lastBackup:null,userName:'',company:'',sheetNote:'',warnPct:30,lowMargin:10,basis:'hana',viewKrw:false,favs:[],sort:{},pinCats:[],insertSorted:false,salesMode:false,sharePath:'회사 폴더/단가관리/영업용',autoShare:false,shareFolderId:null,shareFolderFor:null,lastShare:null},LS.get('danga.settings')||{});
 A.readOnly=!!A.settings.salesMode;
 A.saveSettings=()=>LS.set('danga.settings',A.settings);
 const DKEY=A.readOnly?'danga.draft.sales':'danga.draft';
@@ -195,6 +195,8 @@ A.addItem=it=>{
   it.id=uid('i');let idx=-1;
   A.DB.items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2)idx=k});
   if(idx<0)A.DB.items.forEach((x,k)=>{if(x.cat1===it.cat1)idx=k});
+  if(A.settings.insertSorted&&it.model){let first=-1,pos=-1;A.DB.items.forEach((x,k)=>{if(x.cat1===it.cat1&&x.cat2===it.cat2){if(first<0)first=k;pos=k}});
+    if(first>=0){let ins=pos+1;for(let k=first;k<=pos;k++){if(COLL.compare(it.model,A.DB.items[k].model)<0){ins=k;break}}A.DB.items.splice(ins,0,it);A.reindex();A.touch(1,'품목 추가');return it}}
   if(idx<0)A.DB.items.push(it);else A.DB.items.splice(idx+1,0,it);
   A.reindex();A.touch();return it;
 };
@@ -225,9 +227,10 @@ A.mergeDb=function(local,remote){
     for(const [id,c] of chosen){if(!c.removed&&!done.has(id))place(act,c)}
     return{act,rem:[...chosen.values()].filter(c=>c.removed)};
   };
-  const I=mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
+  const remoteOrder=(remote.itemsUpd||'')>(local.itemsUpd||'');
+  const I=remoteOrder?mergeSet(remote.items,remote.removedItems,local.items,local.removedItems,'id',insertInGroup):mergeSet(local.items,local.removedItems,remote.items,remote.removedItems,'id',insertInGroup);
   const C=mergeSet(local.columns,local.removedColumns,remote.columns,remote.removedColumns,'key',(a,c)=>a.push(c));
-  return{columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
+  return{itemsUpd:(local.itemsUpd||'')>(remote.itemsUpd||'')?local.itemsUpd:remote.itemsUpd,columns:sortCols(C.act),items:regroup(I.act),entries:pickE(local.entries,remote.entries),fx:byId(local.fx,remote.fx),deleted:[...tomb],removedItems:I.rem,removedColumns:C.rem,log:byId(local.log,remote.log),fxCurs:[...new Set([...local.fxCurs,...remote.fxCurs])],groups:pickE(local.groups,remote.groups),sheetLog:byId(local.sheetLog,remote.sheetLog)};
 };
 
 /* ---------- structure edits: rename, move, delete (kept for restore), restore ---------- */
@@ -236,6 +239,46 @@ let lastLog='';const logChange=text=>{lastLog=text;A.DB.log.push({id:uid('l'),at
 A.logChange=logChange;
 const itemPath=it=>[it.cat1,it.cat2,it.model].filter(Boolean).join(' › ');
 const commit=()=>{A.reindex();A.touch(1,lastLog)};
+/* ---------- ordering: view sort, pins, step/drag moves ---------- */
+const COLL=new Intl.Collator('ko',{numeric:true,sensitivity:'base'});
+function tree(items){const t=[];for(const it of (items||A.DB.items)){let a=t.find(x=>x.name===it.cat1);if(!a){a={name:it.cat1,subs:[]};t.push(a)}let b=a.subs.find(x=>x.name===it.cat2);if(!b){b={name:it.cat2,items:[]};a.subs.push(b)}b.items.push(it)}return t}
+const flat=t=>t.flatMap(a=>a.subs.flatMap(b=>b.items));
+function applyOrder(t,label){A.DB.items=flat(t);A.DB.itemsUpd=new Date().toISOString();logChange(label);commit()}
+const place=(arr,x,tg,pos)=>{arr.splice(arr.indexOf(x),1);let i=arr.indexOf(tg);if(pos==='after')i++;arr.splice(i,0,x)};
+A.moveItem=(id,tid,pos)=>{const it=A.ITEM.get(id),tg=A.ITEM.get(tid);if(!it||!tg||id===tid||it.cat1!==tg.cat1||it.cat2!==tg.cat2)return false;const t=tree(),b=t.find(a=>a.name===it.cat1).subs.find(s=>s.name===it.cat2);place(b.items,it,tg,pos);applyOrder(t,'순서 변경: '+A.itemName(it));return true};
+A.moveSub=(c1,c2,tc2,pos)=>{if(c2===tc2)return false;const t=tree(),a=t.find(x=>x.name===c1);if(!a)return false;const s=a.subs.find(x=>x.name===c2),g=a.subs.find(x=>x.name===tc2);if(!s||!g)return false;place(a.subs,s,g,pos);applyOrder(t,'순서 변경: '+c1+' › '+(c2||'(소구분 없음)'));return true};
+A.moveCat=(c1,tc1,pos)=>{if(c1===tc1)return false;const t=tree(),a=t.find(x=>x.name===c1),g=t.find(x=>x.name===tc1);if(!a||!g)return false;place(t,a,g,pos);applyOrder(t,'순서 변경: '+c1);return true};
+A.moveStep=(level,ref,dir)=>{
+  const t=tree();let arr,x;
+  if(level==='item'){const it=A.ITEM.get(ref.id);if(!it)return false;arr=t.find(a=>a.name===it.cat1).subs.find(s=>s.name===it.cat2).items;x=it}
+  else if(level==='sub'){const a=t.find(q=>q.name===ref.c1);if(!a)return false;arr=a.subs;x=a.subs.find(s=>s.name===ref.c2)}
+  else{arr=t;x=t.find(a=>a.name===ref.c1)}
+  if(!x)return false;const i=arr.indexOf(x),j=dir==='up'?i-1:dir==='down'?i+1:dir==='top'?0:arr.length-1;
+  if(j<0||j>=arr.length||j===i)return false;
+  arr.splice(i,1);arr.splice(j,0,x);
+  applyOrder(t,'순서 변경: '+(level==='item'?A.itemName(x):level==='sub'?ref.c1+' › '+(ref.c2||'(소구분 없음)'):ref.c1));return true;
+};
+A.hasSort=()=>{const s=A.settings.sort||{};return !!(s.cat1||s.cat2||s.model)};
+A.setSort=(key,dir)=>{const s=Object.assign({},A.settings.sort||{});if(dir)s[key]=dir;else delete s[key];A.settings.sort=s;A.saveSettings();A.emit()};
+A.cycleSort=key=>{const c=(A.settings.sort||{})[key]||'';A.setSort(key,c===''?'asc':c==='asc'?'desc':'')};
+A.clearSort=()=>{A.settings.sort={};A.saveSettings();A.emit()};
+function sortedTree(){
+  const t=tree(),s=A.settings.sort||{},cmp=d=>(a,b)=>d==='desc'?COLL.compare(b,a):COLL.compare(a,b);
+  if(s.cat1)t.sort((a,b)=>cmp(s.cat1)(a.name,b.name));
+  for(const a of t){if(s.cat2)a.subs.sort((x,y)=>cmp(s.cat2)(x.name,y.name));for(const b of a.subs)if(s.model)b.items.sort((x,y)=>cmp(s.model)(x.model,y.model))}
+  return t;
+}
+A.saveViewOrder=()=>{if(!A.hasSort())return false;const s=A.settings.sort,names={cat1:'대구분',cat2:'소구분',model:'MODEL'};applyOrder(sortedTree(),'순서 저장(정렬): '+Object.keys(s).filter(k=>s[k]).map(k=>names[k]+(s[k]==='asc'?' ▲':' ▼')).join(', '));A.settings.sort={};A.saveSettings();return true};
+A.isPinCat=n=>(A.settings.pinCats||[]).includes(n);
+A.togglePinCat=n=>{const s=new Set(A.settings.pinCats||[]);if(s.has(n))s.delete(n);else s.add(n);A.settings.pinCats=[...s];A.saveSettings();A.emit()};
+/* rows for a table/list: view sort + pinned 대구분 first + pinned items collected into a "고정" block */
+A.orderedRows=function(o){
+  o=o||{};if(o.edit)return A.DB.items.slice();
+  const f=o.filter||(()=>true),st=sortedTree(),pc=A.settings.pinCats||[],pinned=new Set(A.settings.favs||[]);
+  const t=[...st.filter(a=>pc.includes(a.name)),...st.filter(a=>!pc.includes(a.name))],pins=[],rest=[];
+  for(const a of t)for(const b of a.subs)for(const it of b.items){if(!f(it))continue;if(pinned.has(it.id))pins.push(Object.assign({},it,{cat1:'고정',cat2:a.name+(b.name?' › '+b.name:''),_pin:true}));else rest.push(it)}
+  return pins.concat(rest);
+};
 A.findDupItem=(cat1,cat2,model,exceptId)=>A.DB.items.find(x=>x.id!==exceptId&&x.cat1===cat1&&x.cat2===cat2&&x.model===model);
 A.updateItem=function(id,patch){
   const it=A.ITEM.get(id);if(!it)return;const before=itemPath(it);const moved=patch.cat1!==it.cat1||patch.cat2!==it.cat2;
@@ -831,7 +874,8 @@ A.mountSettings=function(el){
     '<div class="form"><label class="field"><span>큰 변동 경고 기준 (%)</span><input type="number" name="warnPct" min="0" step="1"></label><label class="field"><span>저마진 기준 (판매가 대비 %)</span><input type="number" name="lowMargin" step="1"></label></div>'+
     '<p class="hint">단가를 입력할 때 기존보다 이 비율 이상 달라지면 한 번 더 확인합니다(0이면 끔). 마진율이 저마진 기준보다 낮으면 주황, 마이너스면 빨강으로 표시합니다.</p>'+
     '<label class="field"><span>거래처별 단가표에 넣을 회사명</span><input type="text" name="company" placeholder="예: OO산업"></label>'+
-    '<label class="field"><span>단가표 안내 문구</span><input type="text" name="sheetNote" placeholder="예: 부가세 별도 / 문의 02-000-0000"></label></div>'+
+    '<label class="field"><span>단가표 안내 문구</span><input type="text" name="sheetNote" placeholder="예: 부가세 별도 / 문의 02-000-0000"></label>'+
+    '<label class="check"><input type="checkbox" name="insertSorted"> 새 품목을 같은 소구분의 모델 이름 순서에 맞게 끼워 넣기 (끄면 맨 아래에 붙습니다)</label></div>'+
   '<div class="section"><h2>구글 드라이브 연결</h2>'+
     '<label class="field"><span>구글 클라이언트 ID</span><input type="text" name="clientId" placeholder="123456-abc.apps.googleusercontent.com" autocomplete="off"></label>'+
     '<p class="hint">처음 한 번만 입력합니다. 만드는 방법은 저장소의 README에 있습니다. 이 기기 브라우저에만 저장됩니다.</p>'+
@@ -854,7 +898,7 @@ A.mountSettings=function(el){
     '<div data-import></div></div>'+
   '<div class="section"><h2>백업 파일 · 초기화</h2><div class="row"><button class="btn" type="button" data-act="jsonOut">백업 파일 내려받기</button><label class="btn" for="jsonIn">백업 파일 불러오기</label><input type="file" id="jsonIn" accept=".json,application/json" hidden><button class="btn danger" type="button" data-act="wipe">이 기기 데이터 지우기</button></div><p class="hint" data-bstatus>이 기기에도 임시 보관되지만, 드라이브에 저장해야 다른 기기에서 볼 수 있습니다.</p></div>';
   const g=n=>el.querySelector('[name="'+n+'"]');
-  const fill=()=>{const ss=el.querySelector('[data-sharestat]');if(ss)ss.textContent=A.settings.lastShare?'마지막 영업용 파일 저장: '+shortDT(A.settings.lastShare):'아직 영업용 파일을 만들지 않았습니다.';g('autoShare').checked=!!A.settings.autoShare;for(const k of ['clientId','path','prefix','userName','warnPct','lowMargin','company','sheetNote','sharePath'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
+  const fill=()=>{const ss=el.querySelector('[data-sharestat]');if(ss)ss.textContent=A.settings.lastShare?'마지막 영업용 파일 저장: '+shortDT(A.settings.lastShare):'아직 영업용 파일을 만들지 않았습니다.';g('autoShare').checked=!!A.settings.autoShare;g('insertSorted').checked=!!A.settings.insertSorted;for(const k of ['clientId','path','prefix','userName','warnPct','lowMargin','company','sheetNote','sharePath'])if(document.activeElement!==g(k))g(k).value=A.settings[k]||'';g('autoSync').checked=!!A.settings.autoSync};
   fill();
   el.querySelectorAll('[data-status]').forEach(s=>{s.textContent=A.statusText.msg||(A.settings.clientId?(A.hasToken()?'구글에 로그인돼 있습니다.':'저장하거나 불러오면 구글 로그인 창이 뜹니다.'):'구글 클라이언트 ID를 입력하면 드라이브에 저장할 수 있습니다.');s.className='status-line'+(A.statusText.cls?' '+A.statusText.cls:'')});
   el.addEventListener('change',ev=>{
@@ -864,6 +908,7 @@ A.mountSettings=function(el){
     if(n==='clientId'){A.settings.clientId=ev.target.value.trim();if(A.settings.clientId)A.loadGis().catch(()=>{})}
     if(n==='autoSync')A.settings.autoSync=ev.target.checked;
     if(n==='autoShare')A.settings.autoShare=ev.target.checked;
+    if(n==='insertSorted')A.settings.insertSorted=ev.target.checked;
     if(n==='sharePath'&&ev.target.value.trim()!==A.settings.sharePath){A.settings.sharePath=ev.target.value.trim();A.settings.shareFolderId=null;A.settings.shareFolderFor=null}
     if(n==='userName'||n==='company'||n==='sheetNote')A.settings[n]=ev.target.value.trim();
     if(n==='warnPct'||n==='lowMargin'){const v=ev.target.value.trim();A.settings[n]=v===''?(n==='warnPct'?30:10):Number(v)}

@@ -231,3 +231,25 @@ table.list{border-collapse:collapse;width:100%;font-size:13px}
 .dotc{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 body.ro .rw{display:none!important}
 body:not(.ro) .ro-only{display:none!important}
+
+/* ===== ordering: sort headers, pins, drag handles ===== */
+.sortable{cursor:pointer;user-select:none}
+.sortable:hover{color:var(--accent)}
+.pinb{border:none;background:none;color:var(--muted);padding:0 2px;margin-left:4px;cursor:pointer;opacity:0;vertical-align:-2px}
+td:hover>.pinb,.pinb.on,.grp:hover .pinb{opacity:1}
+.pinb.on{color:var(--warn)}
+.pinb:hover{color:var(--accent)}
+.grid td.c1.pinned{box-shadow:inset 3px 0 0 var(--warn)}
+.pinlbl{color:var(--warn);font-weight:600;display:inline-flex;gap:4px;align-items:center}
+.oh{cursor:grab;color:var(--muted);user-select:none;font-size:15px;line-height:1;padding:3px 5px;border-radius:4px;display:inline-block}
+.oh:hover{background:var(--surface-2);color:var(--accent)}
+.oh:active{cursor:grabbing}
+.mvg{display:inline-flex;gap:2px;margin:0 4px}
+.mvb{border:1px solid var(--line-strong);background:var(--surface);border-radius:4px;font-size:9px;line-height:1;padding:3px 5px;cursor:pointer;color:var(--muted)}
+.mvb:hover{color:var(--accent);border-color:var(--accent)}
+tr.drop-before>td{box-shadow:inset 0 3px 0 var(--accent)}
+tr.drop-after>td{box-shadow:inset 0 -3px 0 var(--accent)}
+td.drop-before{box-shadow:inset 0 3px 0 var(--accent)!important}
+td.drop-after{box-shadow:inset 0 -3px 0 var(--accent)!important}
+tr.dragging{opacity:.45}
+.dim{opacity:.4;pointer-events:none}

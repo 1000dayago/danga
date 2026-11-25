@@ -34,7 +34,14 @@ input[type=text],input[type=date],input[type=number],input[type=search],select{f
 .datechip input{width:auto;padding:4px 8px;font-size:14px}
 main{padding-block:12px 24px;display:flex;flex-direction:column;gap:12px}
 main>section{display:flex;flex-direction:column;gap:12px;min-width:0}
-.grp{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em;padding:10px 2px 4px}
+.grp{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em;padding:10px 2px 4px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pinb{opacity:.7}
+.grp.ged{align-items:flex-start;flex-wrap:wrap}
+.mvs{display:inline-flex;gap:6px;align-items:center}
+.mvs button{border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;min-width:38px;min-height:36px;font-size:14px;color:var(--fg);cursor:pointer}
+.mvs button:active{background:var(--accent-weak)}
+.irow.ed{cursor:default}
+.ordctl{align-items:flex-end}
 .items{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .irow{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;background:none;border-left:none;border-right:none;border-top:none;width:100%}
 .irow:last-child{border-bottom:none}
@@ -130,34 +137,43 @@ const VIEWS=A.readOnly?['prices','item','history','more']:ALLV;
 if(A.readOnly){document.body.classList.add('ro');$('#tabbar').style.gridTemplateColumns='repeat('+TABS.length+',1fr)'}
 const TITLES={home:'단가 관리',prices:'단가',history:'변경 이력',analysis:'분석',more:'더보기'};
 $('#tabbar').innerHTML=TABS.map(t=>'<a href="#'+t.id+'" data-tab="'+t.id+'">'+A.icon(t.icon,22)+t.label+'</a>').join('');
-let keepMoreTab=false,cat='',favOnly=false,curItem=A.LS.get('danga.m.item'),showAll=false,showMargin=true,homeHub,hist,anaHub,moreHub,sheetCell=null;
+let editOrder=false,keepMoreTab=false,cat='',favOnly=false,curItem=A.LS.get('danga.m.item'),showAll=false,showMargin=true,homeHub,hist,anaHub,moreHub,sheetCell=null;
 const date=()=>$('#date').value||today();
 
 /* ---------- 단가 list ---------- */
 function renderChips(){
   const cs=A.cats();if(cat&&!cs.includes(cat))cat='';
-  $('#chips').innerHTML='<button class="chip" type="button" data-fav aria-pressed="'+favOnly+'">★ 즐겨찾기</button>'+['',...cs].map(c=>'<button class="chip" type="button" data-cat="'+esc(c)+'" aria-pressed="'+(c===cat)+'">'+esc(c||'전체')+'</button>').join('');
+  $('#chips').innerHTML='<button class="chip" type="button" data-fav aria-pressed="'+favOnly+'">★ 고정만</button>'+['',...cs].map(c=>'<button class="chip" type="button" data-cat="'+esc(c)+'" aria-pressed="'+(c===cat)+'">'+esc(c||'전체')+'</button>').join('');
   document.querySelectorAll('#krwSeg button').forEach(b=>b.setAttribute('aria-selected',String((b.dataset.k==='1')===A.view.krw)));
 }
 function renderPrices(){
   renderChips();const el=$('#v-prices');
   if(A.isEmpty()){el.innerHTML='<div class="empty"><b>아직 단가 데이터가 없습니다.</b><span>설정에서 원본 단가.xlsx를 가져오거나, 드라이브에서 불러오세요.</span><a class="btn primary" href="#more">설정으로 가기</a></div>';return}
   const d=date(),since=addDays(d,-30),q=$('#q').value.trim();
-  const rows=A.DB.items.filter(it=>A.matchItem(it,q,cat)&&(!favOnly||A.isFav(it.id)));
-  if(!rows.length){el.innerHTML='<div class="empty"><b>'+(favOnly?'즐겨찾기한 품목이 없습니다.':'검색 결과가 없습니다.')+'</b>'+(favOnly?'품목 화면의 ☆를 눌러 자주 보는 품목을 등록하세요.':'검색어나 대구분을 바꿔 보세요. 새 품목이면 추가할 수 있습니다.')+'<button class="btn primary rw" type="button" data-additem>+ 품목 추가</button></div>';return}
+  const rows=A.orderedRows({edit:editOrder,filter:it=>A.matchItem(it,q,cat)&&(!favOnly||A.isFav(it.id)||A.isPinCat(it.cat1))});
+  if(!rows.length){el.innerHTML='<div class="empty"><b>'+(favOnly?'고정한 품목이 없습니다.':'검색 결과가 없습니다.')+'</b>'+(favOnly?'품목 화면의 ☆ 고정 버튼이나 대구분의 핀 버튼으로 자주 보는 것을 고정하세요.':'검색어나 대구분을 바꿔 보세요. 새 품목이면 추가할 수 있습니다.')+'<button class="btn primary rw" type="button" data-additem>+ 품목 추가</button></div>';return}
   const buys=A.DB.columns.filter(c=>c.group==='buy'),sells=A.DB.columns.filter(c=>c.group!=='buy');
   let h='',grp=null,open=false;
   for(const it of rows){
-    const g=it.cat1+(it.cat2?' › '+it.cat2:'');
-    if(g!==grp){if(open)h+='</div>';h+='<div class="grp">'+esc(g)+'</div><div class="items">';grp=g;open=true}
+    const g=it._pin?'고정':it.cat1+(it.cat2?' › '+it.cat2:'');
+    if(g!==grp){if(open)h+='</div>';
+      let hd;
+      if(it._pin)hd='<div class="grp"><span class="pinlbl">'+A.icon('pin',14)+' 고정</span></div>';
+      else if(editOrder)hd='<div class="grp ged"><span>'+esc(g)+'</span><span class="mvs"><span class="hint">대구분</span><button type="button" data-mv="cat" data-dir="up" data-c1="'+esc(it.cat1)+'">▲</button><button type="button" data-mv="cat" data-dir="down" data-c1="'+esc(it.cat1)+'">▼</button>'+(it.cat2?'<span class="hint">소구분</span><button type="button" data-mv="sub" data-dir="up" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▲</button><button type="button" data-mv="sub" data-dir="down" data-c1="'+esc(it.cat1)+'" data-c2="'+esc(it.cat2)+'">▼</button>':'')+'</span></div>';
+      else hd='<div class="grp"><span>'+esc(g)+'</span><button type="button" class="pinb'+(A.isPinCat(it.cat1)?' on':'')+'" data-pincat="'+esc(it.cat1)+'" title="이 대구분을 맨 위에 고정">'+A.icon('pin',15)+'</button></div>';
+      h+=hd+'<div class="items">';grp=g;open=true}
+    if(editOrder){h+='<div class="irow ed"><span class="l"><span class="m">'+esc(A.itemName(it))+'</span></span><span class="mvs"><button type="button" data-mv="item" data-dir="up" data-id="'+esc(it.id)+'">▲</button><button type="button" data-mv="item" data-dir="down" data-id="'+esc(it.id)+'">▼</button></span></div>';continue}
     let cost=null;for(const c of buys){const e=A.entryAt(it.id,c.key,d);if(A.hasVal(e)){cost=e;break}}
     const n=sells.filter(c=>A.isNum(A.entryAt(it.id,c.key,d))).length;
     const chg=A.DB.columns.some(c=>A.isChanged(A.entryAt(it.id,c.key,d),since));
     const fut=A.DB.columns.some(c=>A.hasFuture(it.id,c.key,d));
-    h+='<button class="irow" type="button" data-item="'+esc(it.id)+'"><span class="l"><span class="m">'+esc(A.itemName(it))+'</span>'+(A.isFav(it.id)?'<span class="star">★</span>':'')+(chg?'<span class="dot" title="최근 30일 변경"></span>':'')+(fut?' <span class="tag fut">예정</span>':'')+'<br><span class="s">판매처 '+n+'곳</span></span><span class="r">'+(cost?A.eHtml(cost,d):'<span class="hint">-</span>')+'<small>매입가</small></span><span class="chev">›</span></button>';
+    h+='<button class="irow" type="button" data-item="'+esc(it.id)+'"><span class="l"><span class="m">'+esc(A.itemName(it))+'</span>'+(A.isFav(it.id)?'<span class="star">★</span>':'')+(chg?'<span class="dot" title="최근 30일 변경"></span>':'')+(fut?' <span class="tag fut">예정</span>':'')+'<br><span class="s">'+(it._pin?esc(it.cat2)+' · ':'')+'판매처 '+n+'곳</span></span><span class="r">'+(cost?A.eHtml(cost,d):'<span class="hint">-</span>')+'<small>매입가</small></span><span class="chev">›</span></button>';
   }
   if(open)h+='</div>';
-  el.innerHTML=h+'<div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">주황 점: 최근 30일 안에 바뀐 단가가 있음</span><button class="btn rw" type="button" data-additem>+ 품목 추가</button></div>';
+  const s=A.settings.sort||{},cs=['model','cat2','cat1'].find(k=>s[k]),curSort=cs?cs+':'+s[cs]:'';
+  const so=[['','기본 순서'],['model:asc','모델 이름 ▲'],['model:desc','모델 이름 ▼'],['cat2:asc','소구분 ▲'],['cat2:desc','소구분 ▼'],['cat1:asc','대구분 ▲'],['cat1:desc','대구분 ▼']];
+  const ctl='<div class="row ordctl">'+(editOrder?'':'<label class="field" style="flex:1;min-width:130px"><span>정렬</span><select id="mSort">'+so.map(x=>'<option value="'+x[0]+'"'+(x[0]===curSort?' selected':'')+'>'+x[1]+'</option>').join('')+'</select></label>')+'<button class="btn small rw'+(editOrder?' primary':'')+'" type="button" id="btnMOrder">'+(editOrder?'순서 바꾸기 끝내기':'순서 바꾸기')+'</button>'+(A.hasSort()&&!editOrder?'<button class="btn small rw" type="button" id="btnMSortSave">정렬을 순서로 저장</button><button class="btn small" type="button" id="btnMSortClear">정렬 해제</button>':'')+'</div>'+(editOrder?'<div class="status-line">순서 바꾸는 중: ▲▼ 버튼으로 한 칸씩 옮깁니다. 품목은 같은 소구분 안에서, 소구분은 같은 대구분 안에서 옮깁니다. (검색·정렬·고정은 잠시 꺼집니다)</div>':'');
+  el.innerHTML=ctl+h+(editOrder?'':'<div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">주황 점: 최근 30일 안에 바뀐 단가가 있음 · 핀: 맨 위에 고정</span><button class="btn rw" type="button" data-additem>+ 품목 추가</button></div>');
 }
 
 /* ---------- item detail ---------- */
@@ -179,7 +195,7 @@ function renderItem(){
   };
   const buy=A.DB.columns.filter(c=>c.group==='buy').map(row).join(''),sell=A.DB.columns.filter(c=>c.group!=='buy').map(row).join('');
   const notice=A.readOnly?'':A.itemMarginNotice(it.id,d);
-  el.innerHTML='<div class="detail-head"><div class="row" style="justify-content:space-between;align-items:flex-start"><span class="hint">'+esc(A.itemLabel(it))+'</span><div class="row"><button class="btn small" type="button" data-fav-toggle aria-pressed="'+A.isFav(it.id)+'">'+(A.isFav(it.id)?'★ 즐겨찾기':'☆ 즐겨찾기')+'</button><button class="btn small rw" type="button" data-edititem>수정 · 삭제</button></div></div><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
+  el.innerHTML='<div class="detail-head"><div class="row" style="justify-content:space-between;align-items:flex-start"><span class="hint">'+esc(A.itemLabel(it))+'</span><div class="row"><button class="btn small" type="button" data-fav-toggle aria-pressed="'+A.isFav(it.id)+'">'+(A.isFav(it.id)?'★ 고정됨':'☆ 맨 위에 고정')+'</button><button class="btn small rw" type="button" data-edititem>수정 · 삭제</button></div></div><span class="m">'+esc(it.model||'(모델 없음)')+'</span><span class="hint">'+esc(d)+' 기준 · 칸을 누르면 이력과 단가 변경</span></div>'+
     (notice?'<div class="status-line err">'+esc(notice)+'</div>':'')+
     '<div class="row"><label class="check"><input type="checkbox" id="optAll"'+(showAll?' checked':'')+'> 거래 없는 곳도 보기</label><label class="check rw"><input type="checkbox" id="optMg"'+(showMargin?' checked':'')+'> 마진 보기</label></div>'+
     '<div class="grp">매입가</div><div class="items">'+(buy||'<div class="prow none"><span class="n hint">매입가 없음</span></div>')+'</div>'+
@@ -203,12 +219,18 @@ document.addEventListener('danga:undo',()=>{if(sheetCell&&!$('#sheet').hidden)A.
 const addItem=()=>A.addItemDialog({cat1:cat||undefined,date:date(),onDone:(it,n)=>{if(n===1&&it){curItem=it.id;A.LS.set('danga.m.item',curItem);location.hash='#item'}}});
 document.addEventListener('click',ev=>{
   if(ev.target.closest('#modal')||ev.target.closest('#curpick'))return;
+  const mv=ev.target.closest('[data-mv]');if(mv){A.moveStep(mv.dataset.mv,{id:mv.dataset.id,c1:mv.dataset.c1,c2:mv.dataset.c2},mv.dataset.dir);return}
+  const pcat=ev.target.closest('[data-pincat]');if(pcat){A.togglePinCat(pcat.dataset.pincat);return}
+  if(ev.target.closest('#btnMOrder')){editOrder=!editOrder;renderPrices();return}
+  if(ev.target.closest('#btnMSortClear')){A.clearSort();return}
+  const ss=ev.target.closest('#btnMSortSave');if(ss){if(!ss.dataset.armed){ss.dataset.armed='1';ss.textContent='한 번 더 누르면 저장';setTimeout(()=>{if(ss.isConnected){delete ss.dataset.armed;ss.textContent='정렬을 순서로 저장'}},4000);return}if(A.saveViewOrder())A.toast('지금 정렬을 실제 순서로 저장했습니다.',{action:{label:'되돌리기',fn:()=>A.undo()}});return}
   if(ev.target.closest('[data-additem]')){addItem();return}
   if(ev.target.closest('[data-fav]')){favOnly=!favOnly;renderPrices();return}
   const ch=ev.target.closest('[data-cat]');if(ch){cat=ch.dataset.cat;renderPrices();return}
   const ir=ev.target.closest('[data-item]');if(ir){curItem=ir.dataset.item;A.LS.set('danga.m.item',curItem);location.hash='#item';return}
   const t=ev.target.closest('[data-i][data-c]');if(t&&!ev.target.closest('#sheet'))openSheet(t.dataset.i,t.dataset.c);
 });
+document.addEventListener('change',ev=>{if(ev.target.id!=='mSort')return;const v=ev.target.value;A.settings.sort=v?{[v.split(':')[0]]:v.split(':')[1]}:{};A.saveSettings();A.emit()});
 document.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&ev.target.matches('.prow[data-i]'))openSheet(ev.target.dataset.i,ev.target.dataset.c)});
 
 /* ---------- navigation ---------- */
@@ -228,6 +250,7 @@ function render(){
   else if(v==='more')moreHub.refresh();
 }
 function route(){
+  editOrder=false;
   const v=cur();ALLV.forEach(x=>$('#v-'+x).hidden=x!==v);
   const tab=v==='item'?'prices':v;
   document.querySelectorAll('#tabbar a').forEach(a=>{if(a.dataset.tab===tab)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
